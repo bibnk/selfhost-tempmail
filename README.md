@@ -1,184 +1,201 @@
-# Self-host Temp Mail + Dashboard + API
+# Self-host TempMail
 
-Ini untuk membuat temp mail pakai domain sendiri tanpa Cloudflare Email Routing.
+Catch-all temp mail server dengan dashboard web modern dan API untuk bot. Self-hosted, tanpa Cloudflare Email Routing.
 
-Fitur:
-- Terima semua email `*@DOMAIN` via SMTP port 25
-- Simpan email ke SQLite
-- Dashboard web untuk baca email
-- API untuk bot mengambil email/OTP
-- Generate alamat random/alias via API
+**Fitur:**
+- Terima semua email `*@DOMAIN` lewat SMTP port 25
+- Simpan email ke SQLite (lightweight, no external DB)
+- Dashboard web modern (black theme, neon accent) dengan login access code
+- API token untuk script/bot (curl-friendly)
+- Render HTML email aman di iframe sandbox
+- Auto-extract OTP dari subject/body
+- Generate alias random atau custom (`telegram@`, `otp@`, dll)
 
-## Syarat
+## 🚀 1-shot install (recommended)
 
-- VPS dengan IP publik
-- Port `25` terbuka dari internet
-- Port dashboard `8787` dibuka kalau mau akses browser
-- Cloudflare DNS record `mail` harus **DNS only**, bukan proxied/orange cloud
-
-## DNS Cloudflare untuk `example.com`
-
-Ganti `IP_VPS` dengan IP VPS kamu:
-
-```text
-A     mail      IP_VPS                 DNS only
-MX    @         mail.example.com       priority 10
-TXT   @         v=spf1 mx ~all
-TXT   _dmarc    v=DMARC1; p=none; rua=mailto:postmaster@example.com
-```
-
-Hapus/disable Cloudflare Email Routing MX kalau masih ada:
-
-```text
-route1.mx.cloudflare.net
-route2.mx.cloudflare.net
-route3.mx.cloudflare.net
-```
-
-Karena kalau MX masih Cloudflare, email tidak masuk ke VPS kamu.
-
-## Install VPS
+Satu perintah, semua otomatis: dependencies, venv, .env, firewall, systemd service, dan Caddy + auto-SSL Let's Encrypt.
 
 ```bash
-apt update && apt install -y python3 python3-venv screen ufw
-
-cd /root
-tar -xzf /tmp/selfhost-tempmail.tar.gz -C /root
-cd ~/selfhost-tempmail
-
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-pip install -r requirements.txt
-
-cp .env.example .env
-nano .env
+curl -fsSL https://raw.githubusercontent.com/bibnk/selfhost-tempmail/main/setup.sh | sudo bash
 ```
 
-Isi `.env` contoh:
+Atau dengan domain langsung dari env (non-interactive):
 
 ```bash
-DOMAIN=example.com
-MAIL_HOST=0.0.0.0
-SMTP_PORT=25
-WEB_HOST=0.0.0.0
-WEB_PORT=8787
-API_TOKEN=buat-token-random-panjang
-DB_PATH=~/selfhost-tempmail/tempmail.sqlite3
-MAX_MESSAGE_BYTES=10485760
+curl -fsSL https://raw.githubusercontent.com/bibnk/selfhost-tempmail/main/setup.sh | sudo DOMAIN=mail.example.com bash
 ```
 
-Buka port:
+Script akan tanya:
+- 📡 **Mail domain** (e.g. `mail.example.com`)
+- 🔑 **Access code** (untuk login dashboard, kosongkan untuk random 6 digit)
+- 🔒 **Install Caddy + SSL?** (Y/n) — auto Let's Encrypt
+
+Setelah selesai, dashboard live di `https://DOMAIN` dan SMTP siap di port 25.
+
+### Setelah install, set DNS records:
+
+| Type | Name | Content | Note |
+|------|------|---------|------|
+| A | mail | `IP_VPS` | DNS only (jangan proxied) |
+| MX | @ | `mail.example.com` | priority 10 |
+| TXT | @ | `v=spf1 mx ~all` | |
+| TXT | _dmarc | `v=DMARC1; p=none;` | |
+
+⚠️ **Hapus Cloudflare Email Routing kalau aktif** (route1/2/3.mx.cloudflare.net), kalau tidak email tidak akan masuk ke VPS.
+
+⚠️ **Pastikan provider VPS membuka port 25 inbound.** Banyak provider (AWS, GCP, Tencent, Alibaba) memblokir port 25 secara default — submit ticket unblock kalau perlu.
+
+## ⚙️ Service control (setelah install)
 
 ```bash
-ufw allow 25/tcp
-ufw allow 8787/tcp
+systemctl status tempmail      # cek status
+systemctl restart tempmail     # restart
+journalctl -u tempmail -f      # live logs
 ```
 
-Kalau `ufw` belum aktif tidak masalah. Pastikan firewall provider VPS juga buka port 25 dan 8787.
+File penting:
+- Install dir: `/opt/selfhost-tempmail`
+- Config: `/opt/selfhost-tempmail/.env` (chmod 600, jangan share)
+- Database: `/opt/selfhost-tempmail/tempmail.sqlite3`
+- Caddyfile: `/etc/caddy/Caddyfile`
 
-## Run manual
+## 🤖 API untuk bot
+
+Token tersimpan di `.env` dengan key `API_TOKEN`. Pakai header `x-api-token`:
 
 ```bash
-cd ~/selfhost-tempmail
-source .venv/bin/activate
-python3 tempmail_server.py
-```
+TOKEN='YOUR_API_TOKEN'
+BASE='https://mail.example.com'
 
-Buka dashboard:
-
-```text
-http://IP_VPS:8787/?token=buat-token-random-panjang
-```
-
-## Run permanent pakai screen
-
-```bash
-screen -S tempmail -dm bash -lc 'cd ~/selfhost-tempmail && source .venv/bin/activate && python3 tempmail_server.py 2>&1 | tee -a /tmp/tempmail.log'
-```
-
-Cek log:
-
-```bash
-tail -f /tmp/tempmail.log
-```
-
-Stop:
-
-```bash
-screen -S tempmail -X quit
-```
-
-## API untuk bot
-
-Set token:
-
-```bash
-TOKEN='buat-token-random-panjang'
-BASE='http://IP_VPS:8787'
-```
-
-Create address random:
-
-```bash
-curl -s -X POST "$BASE/api/address" \
-  -H "x-api-token: $TOKEN" \
-  -H "content-type: application/json" \
-  -d '{}' | jq
-```
-
-Create alias spesifik:
-
-```bash
+# Create alias spesifik
 curl -s -X POST "$BASE/api/address" \
   -H "x-api-token: $TOKEN" \
   -H "content-type: application/json" \
   -d '{"local":"telegram"}' | jq
-```
 
-List email untuk alamat:
+# Create alias random
+curl -s -X POST "$BASE/api/address" \
+  -H "x-api-token: $TOKEN" \
+  -H "content-type: application/json" \
+  -d '{}' | jq
 
-```bash
-curl -s "$BASE/api/messages?to=telegram@example.com&limit=20" \
+# List email untuk user (filter by alias)
+curl -s "$BASE/api/messages?user=telegram&limit=20" \
   -H "x-api-token: $TOKEN" | jq
-```
 
-Ambil email terbaru, tunggu max 30 detik:
-
-```bash
-curl -s "$BASE/api/latest?to=telegram@example.com&wait=30" \
+# Wait email terbaru max 30 detik (long-polling)
+curl -s "$BASE/api/latest?user=telegram&wait=30" \
   -H "x-api-token: $TOKEN" | jq
-```
 
-Ambil detail email by ID:
-
-```bash
+# Get detail email by ID
 curl -s "$BASE/api/messages/1" \
   -H "x-api-token: $TOKEN" | jq
-```
 
-Delete email:
-
-```bash
+# Delete email
 curl -s -X DELETE "$BASE/api/messages/1" \
   -H "x-api-token: $TOKEN" | jq
 ```
 
-## Test kirim lokal dari VPS
+## 🧪 Test SMTP receiver
+
+Dari VPS sendiri:
 
 ```bash
 apt install -y swaks
-swaks --to test@example.com --from tester@example.com --server 127.0.0.1 --port 25 --body 'hello tempmail'
+swaks --to test@example.com --from sender@gmail.com --server 127.0.0.1 --port 25 --body 'hello'
 ```
 
-Lalu cek dashboard/API.
+Lalu cek dashboard atau:
 
-## Catatan penting
+```bash
+curl -s "$BASE/api/messages?to=test@example.com" -H "x-api-token: $TOKEN" | jq
+```
 
-- Ini fokus untuk **receive/temp mail + API**, bukan SMTP outbound.
-- Tidak perlu bikin user email satu-satu; semua `*@example.com` diterima.
-- Kalau email dari luar tidak masuk, cek:
-  - MX sudah ke `mail.example.com`, bukan Cloudflare routing
-  - `mail.example.com` DNS only
-  - port 25 VPS terbuka
-  - proses `tempmail_server.py` jalan sebagai root atau pakai port 25
+Dari luar (setelah DNS propagate):
+
+```bash
+swaks --to test@example.com --from sender@gmail.com --server mail.example.com --port 25 --body 'hello from outside'
+```
+
+## 🛠 Manual install (alternatif)
+
+Kalau Yang Mulia tidak mau pakai installer otomatis:
+
+```bash
+# 1. Dependencies
+sudo apt update && sudo apt install -y python3 python3-venv git ufw
+
+# 2. Clone
+git clone https://github.com/bibnk/selfhost-tempmail.git
+cd selfhost-tempmail
+
+# 3. Venv + deps
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -U pip && pip install -r requirements.txt
+
+# 4. Config
+cp .env.example .env
+# Edit .env: set DOMAIN, ACCESS_CODE, generate API_TOKEN
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"  # untuk API_TOKEN
+
+# 5. Firewall
+sudo ufw allow 25/tcp
+sudo ufw allow 8787/tcp
+
+# 6. Run (foreground untuk test)
+sudo .venv/bin/python3 tempmail_server.py
+```
+
+Untuk persistent, bikin systemd unit di `/etc/systemd/system/tempmail.service` (lihat contoh di [setup.sh](./setup.sh) bagian `systemd service`).
+
+## 📋 .env reference
+
+| Variable | Default | Keterangan |
+|----------|---------|------------|
+| `DOMAIN` | — | Mail domain (wajib) |
+| `MAIL_HOST` | `0.0.0.0` | SMTP listen address |
+| `SMTP_PORT` | `25` | SMTP port |
+| `WEB_HOST` | `0.0.0.0` | Web listen address (`127.0.0.1` kalau di belakang Caddy) |
+| `WEB_PORT` | `8787` | Web port |
+| `API_TOKEN` | — | Token panjang untuk akses API (header `x-api-token`) |
+| `ACCESS_CODE` | — | Kode pendek untuk login dashboard browser. Kosongkan untuk dev mode |
+| `DB_PATH` | `./tempmail.sqlite3` | Path SQLite |
+| `MAX_MESSAGE_BYTES` | `10485760` | Max ukuran satu email (10 MB) |
+
+## 🔒 Catatan keamanan
+
+- File `.env` di-chmod `600` oleh installer (cuma root yang bisa baca)
+- Dashboard ada **rate limit login** (5 fail / 5 menit → lockout 15 menit per IP)
+- Session cookie `HttpOnly`, `SameSite=Lax`, expire 7 hari
+- HTML email dirender di iframe `sandbox` (script di dalam email tidak bisa akses dashboard)
+- SSL otomatis via Let's Encrypt (Caddy) — auto-renew tiap 60 hari
+- HSTS aktif di Caddyfile bawaan
+
+## 🐛 Troubleshooting
+
+**Email dari luar tidak masuk?**
+- Cek MX sudah ke `mail.example.com` (bukan Cloudflare routing)
+- Cek A record `mail` DNS only (abu-abu, jangan oranye)
+- Test port 25 dari luar: `nc -vz mail.example.com 25`
+- Cek log: `journalctl -u tempmail -n 50`
+- Banyak provider VPS blokir port 25 — submit ticket unblock
+
+**Dashboard tidak bisa diakses?**
+- Cek service: `systemctl status tempmail`
+- Cek port 80/443 (atau 8787 kalau tanpa SSL): `ss -tlnp`
+- Cek Caddy log kalau pakai SSL: `journalctl -u caddy -n 50`
+- Browser hard refresh (`Ctrl+Shift+R`) kalau JS lama ke-cache
+
+**Lupa access code?**
+```bash
+sudo grep ACCESS_CODE /opt/selfhost-tempmail/.env
+```
+
+## 📜 License
+
+MIT — see [LICENSE](./LICENSE)
+
+## 🙏 Credits
+
+Built with `aiosmtpd`, vanilla Python `http.server`, vanilla JS, Caddy untuk reverse proxy + SSL otomatis. No bloat, no framework.
