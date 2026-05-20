@@ -4,22 +4,32 @@
 #   curl -fsSL https://raw.githubusercontent.com/bibnk/selfhost-tempmail/main/setup.sh | sudo bash
 #   curl -fsSL https://raw.githubusercontent.com/bibnk/selfhost-tempmail/main/setup.sh | sudo DOMAIN=mail.example.com bash
 #
-# Env vars (optional, asked interactively if missing):
-#   DOMAIN          - Mail domain (e.g. mail.example.com). Required.
-#   ACCESS_CODE     - Login code for dashboard (e.g. 6715). Random if empty.
-#   ENABLE_HTTPS    - "yes" to install Caddy + Let's Encrypt SSL. Default: yes.
-#   INSTALL_DIR     - Where to put files. Default: /opt/selfhost-tempmail.
-#   REPO_URL        - Repo to clone. Default: https://github.com/bibnk/selfhost-tempmail.git
+# Env vars (semua opsional kecuali DOMAIN; ditanya interaktif kalau kosong):
+#   DOMAIN          - Mail domain (e.g. mail.example.com). WAJIB.
+#   ACCESS_CODE     - Login code untuk dashboard (e.g. 6715). Random 6 digit kalau kosong.
+#   API_TOKEN       - Token API untuk bot (header x-api-token). Auto-generate kalau kosong.
+#   PUBLIC_IP       - IP publik VPS untuk DNS hint. Auto-detect kalau kosong.
+#   ENABLE_HTTPS    - "yes" untuk install Caddy + Let's Encrypt SSL. Default: yes.
+#   INSTALL_DIR     - Lokasi install. Default: /opt/selfhost-tempmail.
+#   REPO_URL        - Repo source. Default: https://github.com/bibnk/selfhost-tempmail.git
+#
+# Contoh non-interactive (semua via env):
+#   curl -fsSL .../setup.sh | sudo \
+#     DOMAIN=mail.example.com \
+#     ACCESS_CODE=6715 \
+#     API_TOKEN=my-custom-long-token \
+#     PUBLIC_IP=1.2.3.4 \
+#     bash
 #
 # What it does:
 #   1. Install OS deps (python3-venv, git, curl, ufw)
 #   2. Clone repo into INSTALL_DIR
 #   3. Create .venv and pip install requirements
-#   4. Generate .env with random API_TOKEN
+#   4. Generate .env (input/random/auto sesuai env vars)
 #   5. Open ports 25, 80, 443 (or 8787 if no HTTPS)
 #   6. Install systemd service (auto-start on boot, auto-restart on crash)
 #   7. (optional) Install Caddy + auto-issue Let's Encrypt SSL for DOMAIN
-#   8. Print final URL + access code
+#   8. Print final URL + credentials + DNS records hint
 
 set -euo pipefail
 
@@ -30,6 +40,29 @@ err()   { echo -e "\033[1;31m[x]\033[0m $*" >&2; }
 die()   { err "$*"; exit 1; }
 need_root() { [ "$EUID" -eq 0 ] || die "Run as root (use sudo)."; }
 have()  { command -v "$1" >/dev/null 2>&1; }
+
+# Generate random secret without dependency on python (fallback for early-stage env)
+gen_token() {
+  if have python3; then
+    python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+  elif have openssl; then
+    openssl rand -base64 32 | tr -d '=+/' | head -c 43
+  else
+    head -c 32 /dev/urandom | base64 | tr -d '=+/' | head -c 43
+  fi
+}
+
+gen_code() {
+  if have python3; then
+    python3 -c "import secrets; print(secrets.randbelow(900000)+100000)"
+  else
+    awk -v seed="$RANDOM$RANDOM" 'BEGIN{srand(seed); printf "%06d\n", int(rand()*900000)+100000}'
+  fi
+}
+
+valid_ipv4() {
+  [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
+}
 
 # ============ config ============
 INSTALL_DIR="${INSTALL_DIR:-/opt/selfhost-tempmail}"
@@ -51,6 +84,8 @@ cat <<'EOF'
 EOF
 
 # ============ collect inputs ============
+
+# --- DOMAIN (required) ---
 if [ -z "${DOMAIN:-}" ]; then
   if [ -t 0 ]; then
     read -r -p "→ Mail domain (e.g. mail.example.com): " DOMAIN
@@ -60,16 +95,58 @@ if [ -z "${DOMAIN:-}" ]; then
 fi
 [ -n "$DOMAIN" ] || die "DOMAIN cannot be empty."
 
+# --- ACCESS_CODE (optional, prompt) ---
 if [ -z "${ACCESS_CODE:-}" ]; then
   if [ -t 0 ]; then
     read -r -p "→ Dashboard access code (Enter for random 6 digits): " ACCESS_CODE
   fi
 fi
 if [ -z "${ACCESS_CODE:-}" ]; then
-  ACCESS_CODE=$(python3 -c "import secrets; print(secrets.randbelow(900000)+100000)")
+  ACCESS_CODE="$(gen_code)"
   log "Generated random access code: $ACCESS_CODE"
+else
+  log "Using provided access code: $ACCESS_CODE"
 fi
 
+# --- API_TOKEN (optional, prompt) ---
+if [ -z "${API_TOKEN:-}" ]; then
+  if [ -t 0 ]; then
+    read -r -p "→ API token for bot/script (Enter for auto-generate 43 chars): " API_TOKEN
+  fi
+fi
+if [ -z "${API_TOKEN:-}" ]; then
+  API_TOKEN="$(gen_token)"
+  log "Generated random API token (length ${#API_TOKEN})"
+else
+  if [ "${#API_TOKEN}" -lt 16 ]; then
+    warn "API_TOKEN length is ${#API_TOKEN} chars — recommended at least 16 chars for security."
+  fi
+  log "Using provided API token (length ${#API_TOKEN})"
+fi
+
+# --- PUBLIC_IP (optional, prompt, auto-detect fallback) ---
+if [ -z "${PUBLIC_IP:-}" ]; then
+  if [ -t 0 ]; then
+    read -r -p "→ Public IP for DNS hint (Enter to auto-detect from ipify.org): " PUBLIC_IP
+  fi
+fi
+if [ -z "${PUBLIC_IP:-}" ]; then
+  PUBLIC_IP="$(curl -s --max-time 4 https://api.ipify.org 2>/dev/null || curl -s --max-time 4 https://ifconfig.me 2>/dev/null || echo '')"
+  if [ -n "$PUBLIC_IP" ]; then
+    log "Auto-detected public IP: $PUBLIC_IP"
+  else
+    warn "Could not auto-detect public IP — set PUBLIC_IP=... manually if needed."
+    PUBLIC_IP="<your-server-ip>"
+  fi
+else
+  if valid_ipv4 "$PUBLIC_IP"; then
+    log "Using provided public IP: $PUBLIC_IP"
+  else
+    warn "Provided PUBLIC_IP doesn't look like an IPv4 address: $PUBLIC_IP (continuing anyway)"
+  fi
+fi
+
+# --- ENABLE_HTTPS (optional, prompt) ---
 if [ "$ENABLE_HTTPS" = "yes" ] && [ -t 0 ]; then
   read -r -p "→ Install Caddy + auto-SSL Let's Encrypt? (Y/n): " ans
   case "$ans" in
@@ -77,7 +154,22 @@ if [ "$ENABLE_HTTPS" = "yes" ] && [ -t 0 ]; then
   esac
 fi
 
-API_TOKEN=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))" 2>/dev/null || openssl rand -base64 32 | tr -d '=+/' | head -c 43)
+# ============ confirmation summary ============
+echo ""
+log "Setup will use:"
+echo "    Domain:        $DOMAIN"
+echo "    Public IP:     $PUBLIC_IP"
+echo "    Access code:   $ACCESS_CODE"
+echo "    API token:     $(echo "$API_TOKEN" | cut -c1-12)... (${#API_TOKEN} chars)"
+echo "    HTTPS/SSL:     $ENABLE_HTTPS"
+echo "    Install dir:   $INSTALL_DIR"
+echo ""
+if [ -t 0 ]; then
+  read -r -p "→ Proceed? (Y/n): " confirm
+  case "$confirm" in
+    n|N) die "Setup aborted by user." ;;
+  esac
+fi
 
 # ============ 1. OS dependencies ============
 log "Installing OS dependencies..."
@@ -217,7 +309,7 @@ EOF
 fi
 
 # ============ 8. summary ============
-PUBLIC_IP=$(curl -s --max-time 4 https://api.ipify.org || curl -s --max-time 4 https://ifconfig.me || echo "<your-server-ip>")
+DASHBOARD_URL=$( [ "$ENABLE_HTTPS" = "yes" ] && echo "https://$DOMAIN" || echo "http://$PUBLIC_IP:8787" )
 
 cat <<EOF
 
@@ -230,7 +322,7 @@ cat <<EOF
 🌐 Public IP:     $PUBLIC_IP
 
 📥 SMTP receiver:  port 25 (terima email *@$DOMAIN)
-🖥  Dashboard:     $( [ "$ENABLE_HTTPS" = "yes" ] && echo "https://$DOMAIN" || echo "http://$PUBLIC_IP:8787" )
+🖥  Dashboard:     $DASHBOARD_URL
 🔑 Access code:    $ACCESS_CODE
 🤖 API token:      $API_TOKEN
 
