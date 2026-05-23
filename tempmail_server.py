@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from email.policy import default as email_policy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, unquote
 
 from aiosmtpd.controller import Controller
 
@@ -574,6 +574,138 @@ a{color:inherit;text-decoration:none}
 .stat .s{font-size:11px;color:var(--txt-3);margin-top:4px}
 
 /* === CARDS === */
+/* Glass select for inbox alias filter */
+.aliasFilter{
+  background:linear-gradient(135deg,rgba(124,92,255,.10),rgba(0,229,255,.04));
+  color:var(--txt);border:1px solid rgba(255,255,255,.12);
+  padding:8px 32px 8px 14px;border-radius:10px;
+  font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;
+  letter-spacing:.04em;cursor:pointer;
+  appearance:none;-webkit-appearance:none;
+  background-image:
+    linear-gradient(135deg,rgba(124,92,255,.10),rgba(0,229,255,.04)),
+    linear-gradient(45deg,transparent 50%,var(--neon-2) 50%),
+    linear-gradient(135deg,var(--neon-2) 50%,transparent 50%);
+  background-position:0 0,calc(100% - 16px) 50%,calc(100% - 11px) 50%;
+  background-size:100% 100%,5px 5px,5px 5px;
+  background-repeat:no-repeat;
+  backdrop-filter:blur(16px) saturate(160%);
+  -webkit-backdrop-filter:blur(16px) saturate(160%);
+  transition:all .15s ease;
+  box-shadow:
+    0 4px 14px rgba(0,229,255,.10),
+    inset 0 1px 0 rgba(255,255,255,.08);
+}
+.aliasFilter:hover{
+  border-color:rgba(0,229,255,.40);
+  box-shadow:0 6px 18px rgba(0,229,255,.20),inset 0 1px 0 rgba(255,255,255,.10);
+}
+.aliasFilter:focus{
+  outline:none;border-color:rgba(124,92,255,.55);
+  box-shadow:0 0 0 3px rgba(124,92,255,.18),0 6px 20px rgba(124,92,255,.22);
+}
+.aliasFilter option{background:#0a0d14;color:var(--txt);padding:8px;font-family:'JetBrains Mono',monospace}
+
+/* === MODAL (glass popout) === */
+.modalBackdrop{
+  position:fixed;inset:0;z-index:1000;
+  background:rgba(2,3,7,.55);backdrop-filter:blur(8px) saturate(120%);-webkit-backdrop-filter:blur(8px) saturate(120%);
+  display:none;align-items:center;justify-content:center;padding:20px;
+  animation:mdFade .18s ease-out;
+}
+.modalBackdrop.show{display:flex}
+@keyframes mdFade{from{opacity:0}to{opacity:1}}
+.modal{
+  width:min(480px,100%);
+  background:linear-gradient(165deg,rgba(20,22,30,.55),rgba(8,10,16,.72));
+  backdrop-filter:blur(40px) saturate(200%);-webkit-backdrop-filter:blur(40px) saturate(200%);
+  border:1px solid rgba(255,255,255,.12);border-radius:20px;
+  box-shadow:
+    0 32px 64px -12px rgba(0,0,0,.7),
+    0 12px 36px rgba(124,92,255,.22),
+    inset 0 1px 0 rgba(255,255,255,.10);
+  overflow:hidden;position:relative;
+  animation:mdRise .22s cubic-bezier(.22,1,.36,1);
+}
+@keyframes mdRise{from{opacity:0;transform:translateY(16px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+.modal:before{
+  content:"";position:absolute;top:0;left:24px;right:24px;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(124,92,255,.7),rgba(0,229,255,.6),transparent);
+}
+.modalHead{
+  padding:18px 22px 14px;border-bottom:1px solid rgba(255,255,255,.06);
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+}
+.modalIcon{
+  width:36px;height:36px;border-radius:11px;display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--neon-2),var(--neon-3));
+  font-size:18px;box-shadow:0 6px 18px rgba(124,92,255,.4),inset 0 1px 0 rgba(255,255,255,.2);
+}
+.modal-title{display:flex;align-items:center;gap:12px}
+.modal-title h3{font-size:15px;font-weight:700;letter-spacing:-.2px;color:var(--txt)}
+.modal-title p{font-size:11.5px;color:var(--txt-3);font-family:'JetBrains Mono',monospace;margin-top:2px}
+.modalClose{
+  width:32px;height:32px;border-radius:9px;display:grid;place-items:center;
+  background:rgba(255,92,92,.10);border:1px solid rgba(255,92,92,.22);color:#ff8a8a;
+  font-size:14px;transition:all .15s ease;
+}
+.modalClose:hover{background:rgba(255,92,92,.18);transform:rotate(90deg)}
+.modalBody{padding:20px 22px;display:grid;gap:16px}
+.modalBody label{font-size:10.5px;font-weight:700;color:var(--txt-3);letter-spacing:.18em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;display:block;margin-bottom:6px}
+.modalFoot{
+  padding:14px 22px;border-top:1px solid rgba(255,255,255,.06);
+  display:flex;gap:10px;justify-content:flex-end;background:rgba(0,0,0,.18);
+}
+.modalFoot .btn{font-size:13px;padding:9px 16px}
+
+/* === COPY ROW === */
+.copyRow{
+  display:flex;align-items:center;gap:0;
+  border:1px solid rgba(124,92,255,.30);border-radius:11px;overflow:hidden;
+  background:linear-gradient(135deg,rgba(124,92,255,.10),rgba(0,229,255,.04));
+  backdrop-filter:blur(10px);
+  transition:all .2s ease;
+}
+.copyRow:hover{border-color:rgba(124,92,255,.55);box-shadow:0 6px 18px rgba(124,92,255,.18)}
+.copyRow code{
+  flex:1;padding:11px 14px;font-family:'JetBrains Mono',monospace;font-size:13.5px;font-weight:600;color:var(--neon);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  background:transparent;letter-spacing:.02em;
+}
+.copyRow button{
+  padding:11px 14px;background:rgba(124,92,255,.16);color:var(--neon);
+  border-left:1px solid rgba(124,92,255,.25);
+  font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  transition:all .15s ease;display:flex;align-items:center;gap:6px;
+}
+.copyRow button:hover{background:rgba(124,92,255,.28);color:#fff}
+.copyRow button.ok{background:rgba(34,217,149,.22);color:var(--ok);border-left-color:rgba(34,217,149,.35)}
+
+/* === ALIAS LIST CARDS === */
+.aliasGrid{display:grid;gap:10px}
+.aliasItem{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:12px 14px;border-radius:12px;
+  background:linear-gradient(135deg,rgba(124,92,255,.08),rgba(0,229,255,.03));
+  backdrop-filter:blur(10px);
+  border:1px solid rgba(255,255,255,.07);
+  transition:all .2s ease;
+}
+.aliasItem:hover{border-color:rgba(124,92,255,.30);transform:translateY(-1px);box-shadow:0 8px 22px rgba(124,92,255,.18)}
+.aliasItem .aliasMain{flex:1;min-width:0}
+.aliasItem code{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--txt);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aliasItem .aliasMeta{font-size:10.5px;color:var(--txt-3);font-family:'JetBrains Mono',monospace;margin-top:3px;display:flex;gap:8px;align-items:center}
+.kindTag{display:inline-block;padding:1px 7px;border-radius:99px;font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.kindTag.custom{background:rgba(124,92,255,.18);color:var(--neon)}
+.kindTag.random{background:rgba(0,229,255,.14);color:var(--neon-2)}
+.iconBtn{
+  width:34px;height:34px;border-radius:9px;display:grid;place-items:center;
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
+  color:var(--txt-2);font-size:14px;transition:all .15s ease;flex-shrink:0;
+}
+.iconBtn:hover{background:rgba(124,92,255,.16);border-color:rgba(124,92,255,.35);color:var(--neon);transform:scale(1.05)}
+.iconBtn.danger:hover{background:rgba(255,92,92,.14);border-color:rgba(255,92,92,.35);color:#ff8a8a}
+
 .card{
   position:relative;
   border-radius:18px;
@@ -866,29 +998,23 @@ a{color:inherit;text-decoration:none}
     </section>
 
     <section class="layout page" id="inbox" data-page="inbox">
-      <div class="card inboxTools">
-        <div class="cardHead"><h3>Ready Email</h3><span class="pill"><span class="dot"></span> choose alias</span></div>
-        <div class="cardBody">
-          <div class="bodyPanel">
-            <label class="formLabel" for="local">User / alias <span class="hint">contoh: telegram → telegram@bibnk.cloud</span></label>
-            <div class="compose">
-              <div class="inputWrap"><span class="inputPrefix">@</span><input class="input" id="local" placeholder="telegram / otp / akun1"></div>
-              <button class="btn green" onclick="createAddress()">+ Ready</button>
-            </div>
-            <div class="quick">
-              <button onclick="document.getElementById('local').value='otp';createAddress()">otp</button>
-              <button onclick="document.getElementById('local').value='telegram';createAddress()">telegram</button>
-              <button onclick="document.getElementById('local').value='discord';createAddress()">discord</button>
-              <button onclick="document.getElementById('local').value='kiro';createAddress()">kiro</button>
-              <button onclick="document.getElementById('local').value='';createAddress()">random</button>
-            </div>
-            <div id="result" class="result">Isi alias di atas lalu klik Ready. Inbox akan otomatis filter ke alamat itu.</div>
+      <div class="card">
+        <div class="cardHead">
+          <h3 id="inboxTitle">Inbox</h3>
+          <div class="tabs">
+            <select id="aliasFilter" class="aliasFilter" onchange="onAliasFilterChange()">
+              <option value="">All incoming</option>
+            </select>
+            <button class="btn" onclick="refresh()" title="Refresh">↻</button>
           </div>
         </div>
-      </div>
-      <div class="card">
-        <div class="cardHead"><h3 id="inboxTitle">Inbox</h3><div class="tabs"><button class="btn" onclick="refresh()">↻</button><button class="btn" onclick="document.getElementById('local').value='';refresh()">All</button></div></div>
-        <div class="cardBody"><div class="listShell"><div id="list" class="list"><div class="empty"><div class="emptyIcon">📭</div><div>Loading inbox...</div></div></div></div></div>
+        <div class="cardBody">
+          <div class="listShell">
+            <div id="list" class="list">
+              <div class="empty"><div class="emptyIcon">📭</div><div>Loading inbox...</div></div>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="card detail">
         <div class="cardHead"><h3>Message</h3><span class="pill" id="selectedPill">—</span></div>
@@ -898,19 +1024,14 @@ a{color:inherit;text-decoration:none}
 
     <section class="layout page" id="aliases" data-page="aliases">
       <div class="card inboxTools">
-        <div class="cardHead"><h3>Claim Alias</h3><span class="pill"><span class="dot"></span> max 3 custom + ∞ random</span></div>
+        <div class="cardHead"><h3>Aliases</h3><span class="pill"><span class="dot"></span> max 3 custom + ∞ random</span></div>
         <div class="cardBody">
-          <div class="bodyPanel">
-            <label class="formLabel">Custom alias (max 3)</label>
-            <div class="compose">
-              <div class="inputWrap"><span class="inputPrefix">@</span><input class="input" id="aliasLocal" placeholder="hello / otp / akun1"></div>
-              <select class="input" id="aliasDomain" style="max-width:200px"></select>
-              <button class="btn green" onclick="claimAlias('custom')">+ Claim</button>
+          <div class="bodyPanel" style="text-align:center;padding:24px 20px">
+            <p style="font-size:13px;color:var(--txt-3);max-width:420px;margin:0 auto 18px;line-height:1.6">Claim alias kustom (max 3) atau generate random unlimited. Setiap alias unik global, hanya pemiliknya yang bisa lihat email.</p>
+            <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+              <button class="btn green" onclick="openClaimAliasModal()">➕ Claim Custom</button>
+              <button class="btn" onclick="claimAlias('random')">🎲 Generate Random</button>
             </div>
-            <div class="quick" style="margin-top:8px">
-              <button onclick="claimAlias('random')">🎲 Random alias</button>
-            </div>
-            <div id="aliasResult" class="result">Pilih nama alias dan domain, lalu klik Claim. Random alias = 10 char unik.</div>
           </div>
         </div>
       </div>
@@ -918,23 +1039,18 @@ a{color:inherit;text-decoration:none}
         <div class="cardHead"><h3>My Aliases</h3><button class="btn" onclick="loadAliases()">↻</button></div>
         <div class="cardBody"><div id="aliasList" class="list"><div class="empty"><div class="emptyIcon">⏳</div><div>Loading...</div></div></div></div>
       </div>
+      <select id="aliasDomain" style="display:none"></select>
     </section>
 
     <section class="layout page" id="users-add" data-page="users-add">
       <div class="card inboxTools">
         <div class="cardHead"><h3>Add User</h3><span class="pill" id="rolePill"><span class="dot"></span> —</span></div>
         <div class="cardBody">
-          <div class="bodyPanel">
-            <label class="formLabel">Username (3-32 chars, huruf/angka/_)</label>
-            <div class="compose">
-              <div class="inputWrap"><span class="inputPrefix">@</span><input class="input" id="newUserName" placeholder="username"></div>
-              <select class="input" id="newUserRole" style="max-width:200px">
-                <option value="user">user</option>
-                <option value="admin">admin (super only)</option>
-              </select>
-              <button class="btn green" onclick="addUser()">+ Add</button>
-            </div>
-            <div id="newUserResult" class="result">Password default: <b style="color:var(--neon)">EJFamily</b>. User wajib ganti saat login pertama.</div>
+          <div class="bodyPanel" style="text-align:center;padding:32px 20px">
+            <div style="font-size:54px;margin-bottom:14px;background:linear-gradient(135deg,var(--neon),var(--neon-2));-webkit-background-clip:text;background-clip:text;color:transparent;line-height:1;display:inline-block">👤</div>
+            <h4 style="font-size:18px;font-weight:600;letter-spacing:-.3px;margin-bottom:6px">Buat user baru</h4>
+            <p style="font-size:12.5px;color:var(--txt-3);max-width:360px;margin:0 auto 20px;line-height:1.55">Password default <b style="color:var(--neon);font-family:'JetBrains Mono',monospace">EJFamily</b> akan otomatis di-set. User wajib ganti saat first login.</p>
+            <button class="btn green" style="font-size:14px;padding:11px 22px" onclick="openAddUserModal()">➕ Add User</button>
           </div>
         </div>
       </div>
@@ -1009,6 +1125,7 @@ a{color:inherit;text-decoration:none}
     </section>
   </main>
 </div>
+<div id="modalRoot" class="modalBackdrop" onclick="if(event.target===this)closeModal()"></div>
 <div id="toast" class="toast"></div>
 <script>
 const qs=new URLSearchParams(location.search); let token=qs.get('token')||localStorage.token||'';
@@ -1016,13 +1133,128 @@ if(qs.get('token')){history.replaceState(null,'',location.pathname+location.hash
 let domain=''; let lastApiText='';
 async function api(path,opt={}){opt.credentials='same-origin';opt.headers=Object.assign({'content-type':'application/json'},opt.headers||{});if(token)opt.headers['x-api-token']=token;let r=await fetch(path,opt);if(r.status===401){location.href='/login';return}let j=await r.json();if(!r.ok)throw new Error(j.error||JSON.stringify(j));return j}
 function esc(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+
+// === MODAL SYSTEM (glass popout) ===
+function openModal({icon='✨',title='',sub='',body='',foot='',onClose}){
+  const r=document.getElementById('modalRoot');
+  // Cancel pending close clear (race-condition safe)
+  if(r._closeTimer){clearTimeout(r._closeTimer);r._closeTimer=null}
+  r.innerHTML=`<div class="modal" onclick="event.stopPropagation()">
+    <div class="modalHead">
+      <div class="modal-title">
+        <div class="modalIcon">${icon}</div>
+        <div><h3>${esc(title)}</h3>${sub?`<p>${esc(sub)}</p>`:''}</div>
+      </div>
+      <button class="modalClose" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modalBody">${body}</div>
+    ${foot?`<div class="modalFoot">${foot}</div>`:''}
+  </div>`;
+  r.classList.add('show');
+  r._onClose=onClose||null;
+  document.addEventListener('keydown',escClose);
+}
+function closeModal(){
+  const r=document.getElementById('modalRoot');
+  if(r._onClose){try{r._onClose()}catch(e){}}
+  r._onClose=null;
+  r.classList.remove('show');
+  if(r._closeTimer)clearTimeout(r._closeTimer);
+  r._closeTimer=setTimeout(()=>{r.innerHTML='';r._closeTimer=null},180);
+  document.removeEventListener('keydown',escClose);
+}
+function escClose(e){if(e.key==='Escape')closeModal()}
+
+async function copyText(text,btn){
+  try{
+    await navigator.clipboard.writeText(text);
+    if(btn){
+      const old=btn.innerHTML;
+      btn.classList.add('ok');
+      btn.innerHTML='✓ Copied';
+      setTimeout(()=>{btn.classList.remove('ok');btn.innerHTML=old},1400);
+    }
+    toast('Copied: '+text);
+  }catch(e){toast('Copy failed')}
+}
+
+function copyRow(value,label){
+  return `<div class="copyRow">
+    <code>${esc(value)}</code>
+    <button onclick="copyText('${esc(value).replace(/'/g,"\\'")}',this)">📋 ${esc(label||'Copy')}</button>
+  </div>`;
+}
+
+// === ALIAS FILTER (inbox dropdown) ===
+let myAliases=[];
+async function loadMyAliasesIntoFilter(){
+  try{
+    const j=await api('/api/aliases');
+    myAliases=j.aliases||[];
+    const sel=document.getElementById('aliasFilter');
+    if(!sel)return;
+    const cur=sel.value;
+    const opts=['<option value="">All incoming</option>'];
+    if(me.role==='super_admin')opts.push('<option value="__all__">All system mail (super)</option>');
+    myAliases.forEach(a=>opts.push(`<option value="${esc(a.alias)}">${esc(a.alias)}</option>`));
+    sel.innerHTML=opts.join('');
+    if(cur)sel.value=cur;
+  }catch(e){console.warn('alias filter load failed',e)}
+}
+
+function onAliasFilterChange(){
+  const v=document.getElementById('aliasFilter').value;
+  refresh(v);
+}
 function toast(s){let el=document.createElement('div');el.textContent=s;document.getElementById('toast').appendChild(el);setTimeout(()=>el.remove(),3300)}
 function fmtTime(s){try{return new Date(s).toLocaleString()}catch(e){return s||''}}
 function stripHtml(s){return String(s||'').replace(/<style[^>]*>[\s\S]*?<\/style>/gi,'').replace(/<script[^>]*>[\s\S]*?<\/script>/gi,'').replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/[a-zA-Z0-9_\-,.\s#:>*\[\]="']{2,80}\{[^{}]*\}/g,' ').replace(/@(media|font-face|keyframes|supports|import|charset)[^{]*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/gi,' ').replace(/\s+/g,' ').trim()}
 async function status(){let s=await api('/api/status');domain=s.domain;let di=document.getElementById('domainInline'); if(di) di.textContent='*@'+s.domain;document.getElementById('stDomain').textContent=s.domain;document.getElementById('stMessages').textContent=s.messages;document.getElementById('stSmtp').textContent=s.smtp_port;document.getElementById('stAuth').textContent=s.auth?'ON':'OFF';let sm=document.getElementById('sideSmtp');if(sm)sm.textContent=':'+s.smtp_port;let smg=document.getElementById('sideMsg');if(smg)smg.textContent=s.messages;let sh=document.getElementById('sideHost');if(sh)sh.textContent=s.domain;lastApiText=`TOKEN='${token||'TOKEN'}'\nBASE='${location.origin}'\n\n# ready/open requested user email\ncurl -s "$BASE/api/ready?user=telegram" -H "x-api-token: $TOKEN" | jq\n\n# create random address\ncurl -s -X POST "$BASE/api/address" -H "x-api-token: $TOKEN" -H "content-type: application/json" -d '{}' | jq\n\n# create specific alias\ncurl -s -X POST "$BASE/api/address" -H "x-api-token: $TOKEN" -H "content-type: application/json" -d '{"local":"telegram"}' | jq\n\n# wait latest email for requested user max 30 sec\ncurl -s "$BASE/api/latest?user=telegram&wait=30" -H "x-api-token: $TOKEN" | jq\n\n# list inbox only requested user\ncurl -s "$BASE/api/messages?user=telegram&limit=20" -H "x-api-token: $TOKEN" | jq`;document.getElementById('apihelp').textContent=lastApiText;return s}
 async function createAddress(){let local=document.getElementById('local').value.trim();try{let j=await api('/api/address',{method:'POST',body:JSON.stringify({local})});document.getElementById('result').textContent=JSON.stringify(j,null,2);document.getElementById('local').value=j.address.split('@')[0];toast('Ready: '+j.address);refresh();}catch(e){document.getElementById('result').textContent=e.message;toast('Error: '+e.message)}}
-function currentTo(){let v=document.getElementById('local').value.trim(); if(!v) return ''; return v.includes('@')?v:v+'@'+domain}
-async function refresh(){try{await status();let to=currentTo();let path='/api/messages?limit=80'+(to?'&to='+encodeURIComponent(to):'');let j=await api(path);let title=to?`Inbox: ${to}`:'All incoming';document.getElementById('inboxTitle').textContent=title;document.getElementById('list').innerHTML=j.messages.map(m=>{const raw=m.preview||'';const isHtml=/<\/?[a-z][^>]*>/i.test(raw)||/\{[^{}]*:[^{}]*\}/.test(raw)||/@(media|keyframes|font-face)/i.test(raw);const cleanPreview=isHtml?stripHtml(raw):raw;const tag=isHtml?'<span class="htmlTag">HTML</span>':'';return `<article class="msg" data-id="${m.id}" onclick="loadMsg(${m.id})"><div class="msgTop"><div class="subject">${esc(m.subject||'(no subject)')}${tag}</div><div class="time">#${m.id}</div></div><div class="meta">${esc(m.from)} → ${esc(m.rcpt_to)}<br>${esc(fmtTime(m.received_at))}</div><div class="preview">${esc(cleanPreview)}</div></article>`}).join('')||'<div class="empty"><div class="emptyIcon">📭</div><div>Belum ada email masuk<br><span style="font-size:11px;color:var(--txt-4)">Email akan muncul di sini secara real-time</span></div></div>'; }catch(e){document.getElementById('list').innerHTML='<div class="empty bad"><div class="emptyIcon">⚠</div><div>'+esc(e.message)+'</div></div>';toast('Error: '+e.message)}}
+function currentTo(){
+  const sel=document.getElementById('aliasFilter');
+  if(!sel)return '';
+  const v=sel.value;
+  if(v==='__all__')return '__SUPER_ALL__';
+  return v;
+}
+async function refresh(filterOverride){
+  try{
+    await status();
+    await loadMyAliasesIntoFilter();
+    // Empty state: user belum punya alias dan bukan super_admin
+    if(myAliases.length===0 && me.role!=='super_admin'){
+      document.getElementById('inboxTitle').textContent='Inbox';
+      document.getElementById('list').innerHTML=`<div class="empty">
+        <div class="emptyIcon" style="font-size:36px;background:linear-gradient(135deg,var(--neon),var(--neon-2));-webkit-background-clip:text;background-clip:text;color:transparent">📭</div>
+        <div style="font-size:15px;font-weight:600;color:var(--txt);margin:8px 0 4px">Belum punya alias</div>
+        <div style="font-size:12px;color:var(--txt-3);max-width:340px;margin:0 auto 16px">Buat alias kustom atau generate random alias untuk mulai terima email.</div>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+          <button class="btn green" onclick="openClaimAliasModal()">➕ Add Alias</button>
+          <button class="btn" onclick="claimAlias('random')">🎲 Generate Random</button>
+        </div>
+      </div>`;
+      return;
+    }
+    let sel=filterOverride!==undefined?filterOverride:currentTo();
+    let qs='/api/messages?limit=80';
+    let title='All incoming';
+    if(sel && sel!=='__SUPER_ALL__'){qs+='&to='+encodeURIComponent(sel);title='Inbox: '+sel;}
+    if(sel==='__SUPER_ALL__'){title='All system mail';}
+    let j=await api(qs);
+    document.getElementById('inboxTitle').textContent=title;
+    document.getElementById('list').innerHTML=j.messages.map(m=>{
+      const raw=m.preview||'';
+      const isHtml=/<\/?[a-z][^>]*>/i.test(raw)||/\{[^{}]*:[^{}]*\}/.test(raw)||/@(media|keyframes|font-face)/i.test(raw);
+      const cleanPreview=isHtml?stripHtml(raw):raw;
+      const tag=isHtml?'<span class="htmlTag">HTML</span>':'';
+      return `<article class="msg" data-id="${m.id}" onclick="loadMsg(${m.id})"><div class="msgTop"><div class="subject">${esc(m.subject||'(no subject)')}${tag}</div><div class="time">#${m.id}</div></div><div class="meta">${esc(m.from)} → ${esc(m.rcpt_to)}<br>${esc(fmtTime(m.received_at))}</div><div class="preview">${esc(cleanPreview)}</div></article>`;
+    }).join('')||'<div class="empty"><div class="emptyIcon">📭</div><div>Belum ada email masuk<br><span style="font-size:11px;color:var(--txt-4)">Email akan muncul di sini secara real-time</span></div></div>';
+  }catch(e){
+    document.getElementById('list').innerHTML='<div class="empty bad"><div class="emptyIcon">⚠</div><div>'+esc(e.message)+'</div></div>';
+    toast('Error: '+e.message);
+  }
+}
 function linkify(s){return String(s||'').replace(/(https?:\/\/[^\s<>"']+)/g,m=>`<a href="${m}" target="_blank" rel="noopener noreferrer">${m}</a>`)}
 function injectBaseTarget(html){
   // Force semua link di HTML email buka di tab baru, bukan replace iframe.
@@ -1096,80 +1328,275 @@ function refreshDomainSelect(){
 }
 
 // === ALIAS PAGE ===
-async function claimAlias(kind){
-  const local=(document.getElementById('aliasLocal').value||'').trim();
-  const domain=document.getElementById('aliasDomain').value;
+function openClaimAliasModal(){
+  // Pakai dropdown domain dari aliasDomain kalau ada, fallback ke current
+  const dEl=document.getElementById('aliasDomain');
+  const opts=dEl?Array.from(dEl.options).map(o=>`<option value="${esc(o.value)}">${esc(o.textContent)}</option>`).join(''):`<option value="${esc(domain)}">${esc(domain)}</option>`;
+  openModal({
+    icon:'➕',title:'Claim Custom Alias',sub:'maks 3 alias custom per user',
+    body:`<div>
+      <label>Local part</label>
+      <input class="input" id="mAliasLocal" placeholder="contoh: telegram, otp, kerjaan" autocomplete="off">
+    </div>
+    <div>
+      <label>Domain</label>
+      <select id="mAliasDomain" class="input" style="cursor:pointer">${opts}</select>
+    </div>
+    <div id="mAliasErr" style="display:none;padding:9px 12px;border-radius:9px;background:rgba(255,92,92,.10);border:1px solid rgba(255,92,92,.28);color:#ff8a8a;font-size:12px;font-family:'JetBrains Mono',monospace"></div>`,
+    foot:`
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn" onclick="claimAliasFromModal('random')">🎲 Random</button>
+      <button class="btn green" onclick="claimAliasFromModal('custom')">✓ Claim</button>
+    `,
+  });
+  setTimeout(()=>document.getElementById('mAliasLocal')?.focus(),120);
+}
+
+async function claimAliasFromModal(kind){
+  const local=(document.getElementById('mAliasLocal')?.value||'').trim();
+  const domain=document.getElementById('mAliasDomain')?.value||'';
+  const err=document.getElementById('mAliasErr');
+  err.style.display='none';
+  if(kind==='custom'&&!local){err.textContent='Local part wajib diisi.';err.style.display='block';return}
   try{
     const body=kind==='random'?{kind:'random',domain}:{kind:'custom',local,domain};
     const j=await api('/api/aliases',{method:'POST',body:JSON.stringify(body)});
-    document.getElementById('aliasResult').textContent=JSON.stringify(j,null,2);
-    document.getElementById('aliasLocal').value='';
-    toast('Claimed: '+j.alias);
+    closeModal();
+    showAliasCreatedModal(j.alias,kind);
     loadAliases();
-  }catch(e){document.getElementById('aliasResult').textContent=e.message;toast('Error: '+e.message)}
+    if(typeof loadMyAliasesIntoFilter==='function')loadMyAliasesIntoFilter();
+  }catch(e){err.textContent=e.message;err.style.display='block'}
 }
-async function deleteAliasIt(alias){
-  if(!confirm('Hapus alias '+alias+' ?')) return;
-  try{ await api('/api/aliases/'+encodeURIComponent(alias),{method:'DELETE'}); toast('Deleted '+alias); loadAliases() }
-  catch(e){toast('Error: '+e.message)}
+
+function showAliasCreatedModal(alias,kind){
+  openModal({
+    icon:'✨',title:'Alias Created',sub:kind==='random'?'auto-generated 10 char':'custom alias',
+    body:`<div>
+      <label>Your new email address</label>
+      ${copyRow(alias,'Copy')}
+    </div>
+    <div style="font-size:11.5px;color:var(--txt-3);font-family:'JetBrains Mono',monospace;line-height:1.6">
+      Email yang dikirim ke <b style="color:var(--neon)">${esc(alias)}</b> akan masuk ke inbox kamu otomatis.
+    </div>`,
+    foot:`<button class="btn green" onclick="closeModal();window.location.hash='#inbox'">📥 Go to Inbox</button>`,
+  });
 }
+
+// Backward compat: claimAlias('random') dipanggil dari empty state inbox
+async function claimAlias(kind){
+  if(kind==='random'){
+    try{
+      const j=await api('/api/aliases',{method:'POST',body:JSON.stringify({kind:'random',domain})});
+      showAliasCreatedModal(j.alias,'random');
+      loadAliases();
+      if(typeof loadMyAliasesIntoFilter==='function')loadMyAliasesIntoFilter();
+    }catch(e){toast('Error: '+e.message)}
+    return;
+  }
+  // custom dari form aliases page
+  const local=(document.getElementById('aliasLocal')?.value||'').trim();
+  const dom=document.getElementById('aliasDomain')?.value||domain;
+  try{
+    const j=await api('/api/aliases',{method:'POST',body:JSON.stringify({kind:'custom',local,domain:dom})});
+    if(document.getElementById('aliasLocal'))document.getElementById('aliasLocal').value='';
+    showAliasCreatedModal(j.alias,'custom');
+    loadAliases();
+    if(typeof loadMyAliasesIntoFilter==='function')loadMyAliasesIntoFilter();
+  }catch(e){toast('Error: '+e.message)}
+}
+
+function deleteAliasIt(alias){
+  openModal({
+    icon:'🗑',title:'Delete Alias?',sub:'aksi tidak dapat dibatalkan',
+    body:`<div style="padding:11px 14px;border-radius:11px;background:rgba(255,92,92,.06);border:1px solid rgba(255,92,92,.20);color:#ff9a9a;font-size:13px">
+      Alias <b style="font-family:'JetBrains Mono',monospace;color:#ff8a8a">${esc(alias)}</b> akan dihapus permanen. Email yang sudah masuk tetap di inbox.
+    </div>`,
+    foot:`
+      <button class="btn" onclick="closeModal()">Batal</button>
+      <button class="btn" style="background:linear-gradient(135deg,rgba(255,92,92,.30),rgba(255,61,139,.18));color:#fff;border-color:rgba(255,92,92,.45)" onclick="confirmDeleteAlias('${esc(alias).replace(/'/g,"\\'")}')">🗑 Hapus</button>
+    `,
+  });
+}
+
+async function confirmDeleteAlias(alias){
+  try{
+    await api('/api/aliases/'+encodeURIComponent(alias),{method:'DELETE'});
+    closeModal();
+    toast('Deleted '+alias);
+    loadAliases();
+    if(typeof loadMyAliasesIntoFilter==='function')loadMyAliasesIntoFilter();
+  }catch(e){toast('Error: '+e.message)}
+}
+
 async function loadAliases(){
   try{
     const j=await api('/api/aliases');
     const lim=j.custom_limit||3;
     const used=(j.aliases||[]).filter(a=>a.kind==='custom').length;
     const tot=(j.aliases||[]).length;
-    document.getElementById('aliasList').innerHTML=
-      `<div style="padding:0 0 12px;color:var(--txt-3);font-size:12px">Custom: ${used}/${lim} · Total: ${tot}</div>`+
-      ((j.aliases||[]).map(a=>`<article class="msg"><div class="msgTop"><div class="subject">${esc(a.alias)}<span class="htmlTag">${a.kind}</span></div><button class="btn" onclick="deleteAliasIt('${esc(a.alias)}')">🗑 Delete</button></div><div class="meta">${esc(a.created_at)}</div></article>`).join('')||'<div class="empty"><div class="emptyIcon">📭</div><div>Belum punya alias. Claim di atas.</div></div>');
+    const meta=`<div style="display:flex;gap:14px;align-items:center;padding:0 0 14px;font-family:'JetBrains Mono',monospace;font-size:11.5px"><span style="color:var(--txt-3)">CUSTOM <b style="color:${used>=lim?'var(--warn)':'var(--neon)'}">${used}/${lim}</b></span><span style="color:var(--txt-3)">TOTAL <b style="color:var(--neon-2)">${tot}</b></span></div>`;
+    const list=(j.aliases||[]).map(a=>`<div class="aliasItem">
+      <div class="aliasMain">
+        <code>${esc(a.alias)}</code>
+        <div class="aliasMeta"><span class="kindTag ${a.kind}">${a.kind}</span><span>${esc(a.created_at||'').replace('T',' ').slice(0,19)}</span></div>
+      </div>
+      <button class="iconBtn" onclick="copyText('${esc(a.alias).replace(/'/g,"\\'")}',this)" title="Copy">📋</button>
+      <button class="iconBtn danger" onclick="deleteAliasIt('${esc(a.alias).replace(/'/g,"\\'")}')" title="Delete">🗑</button>
+    </div>`).join('')||'<div class="empty"><div class="emptyIcon">📭</div><div>Belum punya alias.<br><span style="font-size:11px;color:var(--txt-4)">Klik tombol di atas untuk claim.</span></div></div>';
+    document.getElementById('aliasList').innerHTML=meta+'<div class="aliasGrid">'+list+'</div>';
   }catch(e){document.getElementById('aliasList').innerHTML='<div class="empty bad">'+esc(e.message)+'</div>'}
 }
 
 // === USERS PAGE ===
-async function addUser(){
-  const username=(document.getElementById('newUserName').value||'').trim();
-  const role=document.getElementById('newUserRole').value;
+function openAddUserModal(){
+  const roleOpts=me.role==='super_admin'?'<option value="user">user</option><option value="admin">admin</option>':'<option value="user">user</option>';
+  openModal({
+    icon:'➕',title:'Add User',sub:'password default = EJFamily',
+    body:`<div>
+      <label>Username</label>
+      <input class="input" id="mUserName" placeholder="username (lowercase)" autocomplete="off">
+    </div>
+    <div>
+      <label>Role</label>
+      <select id="mUserRole" class="input" style="cursor:pointer">${roleOpts}</select>
+    </div>
+    <div style="padding:9px 12px;border-radius:9px;background:rgba(0,229,255,.06);border:1px solid rgba(0,229,255,.20);color:var(--neon-2);font-size:11.5px;font-family:'JetBrains Mono',monospace;line-height:1.55">
+      ⓘ User akan dapat password default <b style="color:var(--neon)">EJFamily</b> dan WAJIB ganti saat first login.
+    </div>
+    <div id="mUserErr" style="display:none;padding:9px 12px;border-radius:9px;background:rgba(255,92,92,.10);border:1px solid rgba(255,92,92,.28);color:#ff8a8a;font-size:12px;font-family:'JetBrains Mono',monospace"></div>`,
+    foot:`
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn green" onclick="submitAddUser()">✓ Create User</button>
+    `,
+  });
+  setTimeout(()=>document.getElementById('mUserName')?.focus(),120);
+}
+
+async function submitAddUser(){
+  const username=(document.getElementById('mUserName')?.value||'').trim().toLowerCase();
+  const role=document.getElementById('mUserRole')?.value||'user';
+  const err=document.getElementById('mUserErr');
+  err.style.display='none';
+  if(!username){err.textContent='Username wajib diisi.';err.style.display='block';return}
   try{
     const j=await api('/api/users',{method:'POST',body:JSON.stringify({username,role})});
-    const div=document.getElementById('newUserResult');
-    div.innerHTML=`<div style="padding:12px;background:rgba(0,229,255,.06);border:1px solid var(--neon);border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.7">✓ User created<br>username: <b>${esc(j.username)}</b><br>role: ${esc(j.role)}<br>password: <b style="color:var(--neon-3);font-size:14px;user-select:all">${esc(j.initial_password)}</b><br><span style="color:var(--warn)">⚠ Password ini hanya muncul sekali. Catat & berikan ke user.</span></div>`;
-    document.getElementById('newUserName').value='';
-    toast('User '+j.username+' dibuat');
+    closeModal();
+    showUserCreatedModal(j);
     loadUsers();
-  }catch(e){document.getElementById('newUserResult').textContent=e.message;toast('Error: '+e.message)}
+  }catch(e){err.textContent=e.message;err.style.display='block'}
 }
+
+function showUserCreatedModal(j){
+  openModal({
+    icon:'🎉',title:'User Created',sub:`role: ${j.role}`,
+    body:`<div>
+      <label>Username</label>
+      ${copyRow(j.username,'Copy')}
+    </div>
+    <div>
+      <label>Initial Password</label>
+      ${copyRow(j.initial_password,'Copy')}
+    </div>
+    <div>
+      <label>Login URL</label>
+      ${copyRow(location.origin+'/login','Copy')}
+    </div>
+    <div style="padding:11px 14px;border-radius:11px;background:rgba(255,180,84,.07);border:1px solid rgba(255,180,84,.22);color:#ffb454;font-size:11.5px;font-family:'JetBrains Mono',monospace;line-height:1.55">
+      ⚠ User ini WAJIB ganti password saat first login. Password tidak akan ditampilkan lagi setelah modal ditutup.
+    </div>`,
+    foot:`
+      <button class="btn" onclick="copyText('Login: ${location.origin}/login\\nUsername: ${esc(j.username)}\\nPassword: ${esc(j.initial_password)}',this)">📋 Copy All</button>
+      <button class="btn green" onclick="closeModal()">✓ Done</button>
+    `,
+  });
+}
+
 async function loadUsers(){
   try{
     const j=await api('/api/users');
     document.getElementById('userList').innerHTML=(j.users||[]).map(u=>{
-      const lockBtn=(me.role==='super_admin'&&u.role!=='super_admin')?(u.locked?`<button class="btn" onclick="unlockUser('${esc(u.username)}')">🔓 Unlock</button>`:`<button class="btn" onclick="lockUser('${esc(u.username)}')">🔒 Lock</button>`):'';
-      const delBtn=(me.role==='super_admin'&&u.role!=='super_admin')?`<button class="btn" onclick="deleteUserIt('${esc(u.username)}')">🗑 Delete</button>`:'';
-      const pwBtn=(me.role==='super_admin'&&u.role!=='super_admin')?`<button class="btn" onclick="resetPw('${esc(u.username)}')">🔑 Reset PW</button>`:'';
+      const lockBtn=(me.role==='super_admin'&&u.role!=='super_admin')?(u.locked?`<button class="iconBtn" onclick="openUnlockModal('${esc(u.username).replace(/'/g,"\\'")}')" title="Unlock">🔓</button>`:`<button class="iconBtn" onclick="openLockModal('${esc(u.username).replace(/'/g,"\\'")}')" title="Lock">🔒</button>`):'';
+      const delBtn=(me.role==='super_admin'&&u.role!=='super_admin')?`<button class="iconBtn danger" onclick="openDeleteUserModal('${esc(u.username).replace(/'/g,"\\'")}')" title="Delete">🗑</button>`:'';
+      const pwBtn=(me.role==='super_admin'&&u.role!=='super_admin')?`<button class="iconBtn" onclick="openResetPwModal('${esc(u.username).replace(/'/g,"\\'")}')" title="Reset password">🔑</button>`:'';
       const tag=u.locked?'<span class="htmlTag" style="background:rgba(255,92,92,.18);color:#ff8a8a;border-color:rgba(255,92,92,.4)">LOCKED</span>':(u.must_change_password?'<span class="htmlTag" style="background:rgba(255,180,84,.15);color:#ffb454">MUST CHANGE PW</span>':'');
       const reason=u.lock_reason?`<br>Lock reason: <i>${esc(u.lock_reason)}</i>`:'';
-      return `<article class="msg"><div class="msgTop"><div class="subject">${esc(u.username)} <span class="htmlTag">${u.role}</span>${tag}</div><div>${pwBtn} ${lockBtn} ${delBtn}</div></div><div class="meta">created ${esc(u.created_at)} · by ${esc(u.created_by||'-')} · last login ${esc(u.last_login_at||'never')}${reason}</div></article>`;
+      return `<article class="msg"><div class="msgTop"><div class="subject">${esc(u.username)} <span class="htmlTag">${u.role}</span>${tag}</div><div style="display:flex;gap:6px">${pwBtn}${lockBtn}${delBtn}</div></div><div class="meta">created ${esc(u.created_at)} · by ${esc(u.created_by||'-')} · last login ${esc(u.last_login_at||'never')}${reason}</div></article>`;
     }).join('')||'<div class="empty"><div class="emptyIcon">👥</div><div>No users</div></div>';
   }catch(e){document.getElementById('userList').innerHTML='<div class="empty bad">'+esc(e.message)+'</div>'}
 }
-async function lockUser(u){
-  const reason=prompt('Alasan lock '+u+':'); if(reason===null) return;
-  if(!reason.trim()){toast('Alasan wajib');return}
-  try{await api('/api/users/'+u+'/lock',{method:'POST',body:JSON.stringify({reason})});toast('Locked '+u);loadUsers()}catch(e){toast('Error: '+e.message)}
+
+function openLockModal(u){
+  openModal({
+    icon:'🔒',title:'Lock User',sub:u,
+    body:`<div>
+      <label>Alasan lock (wajib)</label>
+      <input class="input" id="mLockReason" placeholder="contoh: suspicious activity" autocomplete="off">
+    </div>`,
+    foot:`<button class="btn" onclick="closeModal()">Batal</button><button class="btn green" onclick="submitLock('${esc(u).replace(/'/g,"\\'")}')">🔒 Lock</button>`,
+  });
+  setTimeout(()=>document.getElementById('mLockReason')?.focus(),120);
 }
-async function unlockUser(u){
-  const reason=prompt('Alasan unlock '+u+' (opsional):')||'manual unlock';
-  try{await api('/api/users/'+u+'/unlock',{method:'POST',body:JSON.stringify({reason})});toast('Unlocked '+u);loadUsers()}catch(e){toast('Error: '+e.message)}
+async function submitLock(u){
+  const reason=(document.getElementById('mLockReason')?.value||'').trim();
+  if(!reason){toast('Alasan wajib');return}
+  try{await api('/api/users/'+u+'/lock',{method:'POST',body:JSON.stringify({reason})});closeModal();toast('Locked '+u);loadUsers()}catch(e){toast('Error: '+e.message)}
 }
-async function deleteUserIt(u){
-  const reason=prompt('Alasan delete '+u+' (wajib):'); if(reason===null) return;
-  if(!reason.trim()){toast('Alasan wajib');return}
-  try{await api('/api/users/'+u,{method:'DELETE',body:JSON.stringify({reason})});toast('Deleted '+u);loadUsers()}catch(e){toast('Error: '+e.message)}
+function openUnlockModal(u){
+  openModal({
+    icon:'🔓',title:'Unlock User',sub:u,
+    body:`<div>
+      <label>Alasan unlock (opsional)</label>
+      <input class="input" id="mUnlockReason" placeholder="manual unlock" autocomplete="off">
+    </div>`,
+    foot:`<button class="btn" onclick="closeModal()">Batal</button><button class="btn green" onclick="submitUnlock('${esc(u).replace(/'/g,"\\'")}')">🔓 Unlock</button>`,
+  });
 }
-async function resetPw(u){
-  if(!confirm('Reset password '+u+'? Password baru akan generate dan user wajib ganti saat login.')) return;
+async function submitUnlock(u){
+  const reason=(document.getElementById('mUnlockReason')?.value||'').trim()||'manual unlock';
+  try{await api('/api/users/'+u+'/unlock',{method:'POST',body:JSON.stringify({reason})});closeModal();toast('Unlocked '+u);loadUsers()}catch(e){toast('Error: '+e.message)}
+}
+function openDeleteUserModal(u){
+  openModal({
+    icon:'🗑',title:'Delete User?',sub:u,
+    body:`<div style="padding:11px 14px;border-radius:11px;background:rgba(255,92,92,.06);border:1px solid rgba(255,92,92,.20);color:#ff9a9a;font-size:13px;line-height:1.55">
+      User <b>${esc(u)}</b> akan dihapus permanen — alias, session, dan email yang dia miliki ikut hilang.
+    </div>
+    <div>
+      <label>Alasan delete (wajib)</label>
+      <input class="input" id="mDelReason" placeholder="contoh: tidak aktif lagi" autocomplete="off">
+    </div>`,
+    foot:`<button class="btn" onclick="closeModal()">Batal</button><button class="btn" style="background:linear-gradient(135deg,rgba(255,92,92,.30),rgba(255,61,139,.18));color:#fff;border-color:rgba(255,92,92,.45)" onclick="submitDelete('${esc(u).replace(/'/g,"\\'")}')">🗑 Delete</button>`,
+  });
+}
+async function submitDelete(u){
+  const reason=(document.getElementById('mDelReason')?.value||'').trim();
+  if(!reason){toast('Alasan wajib');return}
+  try{await api('/api/users/'+u,{method:'DELETE',body:JSON.stringify({reason})});closeModal();toast('Deleted '+u);loadUsers()}catch(e){toast('Error: '+e.message)}
+}
+function openResetPwModal(u){
+  openModal({
+    icon:'🔑',title:'Reset Password?',sub:u,
+    body:`<div style="padding:11px 14px;border-radius:11px;background:rgba(0,229,255,.06);border:1px solid rgba(0,229,255,.22);color:var(--neon-2);font-size:12.5px;line-height:1.55">
+      Password ${esc(u)} akan direset ke <b style="color:var(--neon)">EJFamily</b> dan dia harus ganti saat next login.
+    </div>`,
+    foot:`<button class="btn" onclick="closeModal()">Batal</button><button class="btn green" onclick="submitResetPw('${esc(u).replace(/'/g,"\\'")}')">🔑 Reset</button>`,
+  });
+}
+async function submitResetPw(u){
   try{
     const j=await api('/api/users/'+u+'/password',{method:'POST',body:JSON.stringify({})});
-    alert('New password untuk '+u+':\n\n'+j.new_password+'\n\nCATAT — password ini hanya muncul sekali.');
+    closeModal();
+    openModal({
+      icon:'🎉',title:'Password Reset',sub:u,
+      body:`<div>
+        <label>New Password</label>
+        ${copyRow(j.new_password,'Copy')}
+      </div>
+      <div style="padding:9px 12px;border-radius:9px;background:rgba(255,180,84,.07);border:1px solid rgba(255,180,84,.22);color:#ffb454;font-size:11.5px;font-family:'JetBrains Mono',monospace">
+        ⚠ User wajib ganti password saat next login.
+      </div>`,
+      foot:`<button class="btn green" onclick="closeModal()">✓ Done</button>`,
+    });
     loadUsers();
   }catch(e){toast('Error: '+e.message)}
 }
@@ -2182,7 +2609,7 @@ class Handler(BaseHTTPRequestHandler):
         # ── Delete alias ──
         m = re.match(r"^/api/aliases/(.+)$", path)
         if m:
-            alias = m.group(1).lower()
+            alias = unquote(m.group(1)).lower()
             with db() as c:
                 ad.delete_alias(c, alias=alias, requester=u["username"], role=u["role"])
                 au.log_action(c, u["username"], "delete_alias", target=alias)
