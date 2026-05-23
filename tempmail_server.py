@@ -23,6 +23,9 @@ from urllib.parse import parse_qs, urlparse
 
 from aiosmtpd.controller import Controller
 
+import auth_users as au
+import aliases_domains as ad
+
 BASE = Path(__file__).resolve().parent
 
 
@@ -48,6 +51,11 @@ API_TOKEN = os.getenv("API_TOKEN", "")
 ACCESS_CODE = os.getenv("ACCESS_CODE", "")
 DB_PATH = os.getenv("DB_PATH", str(BASE / "tempmail.sqlite3"))
 MAX_MESSAGE_BYTES = int(os.getenv("MAX_MESSAGE_BYTES", "10485760"))
+
+# Bootstrap super_admin awal — username + password.
+SUPER_ADMIN_USER = os.getenv("SUPER_ADMIN_USER", "6715").strip().lower()
+SUPER_ADMIN_PASS = os.getenv("SUPER_ADMIN_PASS", "6715")
+EMAIL_RETENTION_HOURS = int(os.getenv("EMAIL_RETENTION_HOURS", "48"))
 
 # In-memory session store: {session_id: expires_at_ts}
 SESSIONS = {}
@@ -147,6 +155,20 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_messages_received ON messages(received_at DESC);
             """
         )
+        # Schema baru: users, sessions, audit, aliases, domains
+        au.init_schema(c)
+        ad.init_schema(c)
+        # Bootstrap super_admin pertama kali
+        au.ensure_super_admin(c, username=SUPER_ADMIN_USER, password=SUPER_ADMIN_PASS)
+        # Auto-register domain default dari .env kalau belum ada
+        if DOMAIN and not ad.get_domain(c, DOMAIN):
+            try:
+                ad.add_domain(c, domain=DOMAIN, mode=ad.DOMAIN_MODE_PUBLIC,
+                              actor="system")
+                au.log_action(c, "system", "add_domain", target=DOMAIN,
+                              meta={"mode": ad.DOMAIN_MODE_PUBLIC, "source": ".env"})
+            except Exception:
+                pass
 
 
 def decode_header_value(v):
@@ -211,7 +233,15 @@ def normalize_addr(addr: str) -> str:
 
 def is_local_domain(addr: str) -> bool:
     addr = normalize_addr(addr)
-    return addr.endswith("@" + DOMAIN)
+    if "@" not in addr:
+        return False
+    dom = addr.split("@", 1)[1]
+    # Cek dynamic — semua domain yang terdaftar di tabel domains (enabled)
+    try:
+        with db() as c:
+            return ad.domain_is_accepted(c, dom)
+    except Exception:
+        return dom == DOMAIN
 
 
 def _clean_preview(text_body, html_body, max_len=500):
@@ -312,7 +342,7 @@ INDEX_HTML = r"""
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TempMail</title>
+<title>TempMail · self-hosted</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -710,9 +740,13 @@ a{color:inherit;text-decoration:none}
 <body>
 <div class="app">
   <aside class="side">
-    <div class="logo"><div class="mark">B</div><div class="brand"><h1>TempMail</h1><p>example.com</p></div></div>
+    <div class="logo"><div class="mark">B</div><div class="brand"><h1>TempMail</h1><p>self-hosted</p></div></div>
     <nav class="nav">
       <a class="active" href="#inbox" data-page="inbox"><span>📥</span> Inbox</a>
+      <a href="#aliases" data-page="aliases"><span>✉️</span> Aliases</a>
+      <a href="#users" data-page="users" data-need="admin"><span>👥</span> Users</a>
+      <a href="#domains" data-page="domains" data-need="super"><span>🌐</span> Domains</a>
+      <a href="#audit" data-page="audit" data-need="super"><span>📜</span> Audit Log</a>
       <a href="#api" data-page="api"><span>🤖</span> Bot API</a>
       <a href="#status" data-page="status"><span>📊</span> Status</a>
       <div class="nav-spacer"></div>
@@ -723,7 +757,7 @@ a{color:inherit;text-decoration:none}
       <div class="sideMeta">
         <div><span>SMTP</span><b id="sideSmtp">—</b></div>
         <div><span>MSG</span><b id="sideMsg">—</b></div>
-        <div><span>HOST</span><b id="sideHost">example.com</b></div>
+        <div><span>HOST</span><b id="sideHost">your-domain.com</b></div>
       </div>
     </div>
   </aside>
@@ -751,7 +785,7 @@ a{color:inherit;text-decoration:none}
         <div class="cardHead"><h3>Ready Email</h3><span class="pill"><span class="dot"></span> choose alias</span></div>
         <div class="cardBody">
           <div class="bodyPanel">
-            <label class="formLabel" for="local">User / alias <span class="hint">contoh: telegram → telegram@example.com</span></label>
+            <label class="formLabel" for="local">User / alias <span class="hint">contoh: telegram → telegram@bibnk.cloud</span></label>
             <div class="compose">
               <div class="inputWrap"><span class="inputPrefix">@</span><input class="input" id="local" placeholder="telegram / otp / akun1"></div>
               <button class="btn green" onclick="createAddress()">+ Ready</button>
@@ -777,6 +811,85 @@ a{color:inherit;text-decoration:none}
       </div>
     </section>
 
+    <section class="layout page" id="aliases" data-page="aliases">
+      <div class="card inboxTools">
+        <div class="cardHead"><h3>Claim Alias</h3><span class="pill"><span class="dot"></span> max 3 custom + ∞ random</span></div>
+        <div class="cardBody">
+          <div class="bodyPanel">
+            <label class="formLabel">Custom alias (max 3)</label>
+            <div class="compose">
+              <div class="inputWrap"><span class="inputPrefix">@</span><input class="input" id="aliasLocal" placeholder="hello / otp / akun1"></div>
+              <select class="input" id="aliasDomain" style="max-width:200px"></select>
+              <button class="btn green" onclick="claimAlias('custom')">+ Claim</button>
+            </div>
+            <div class="quick" style="margin-top:8px">
+              <button onclick="claimAlias('random')">🎲 Random alias</button>
+            </div>
+            <div id="aliasResult" class="result">Pilih nama alias dan domain, lalu klik Claim. Random alias = 10 char unik.</div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="grid-column:1/-1">
+        <div class="cardHead"><h3>My Aliases</h3><button class="btn" onclick="loadAliases()">↻</button></div>
+        <div class="cardBody"><div id="aliasList" class="list"><div class="empty"><div class="emptyIcon">⏳</div><div>Loading...</div></div></div></div>
+      </div>
+    </section>
+
+    <section class="layout page" id="users" data-page="users">
+      <div class="card inboxTools">
+        <div class="cardHead"><h3>Add User</h3><span class="pill" id="rolePill"><span class="dot"></span> —</span></div>
+        <div class="cardBody">
+          <div class="bodyPanel">
+            <label class="formLabel">Username (3-32 chars, huruf/angka/_)</label>
+            <div class="compose">
+              <div class="inputWrap"><span class="inputPrefix">@</span><input class="input" id="newUserName" placeholder="username"></div>
+              <select class="input" id="newUserRole" style="max-width:200px">
+                <option value="user">user</option>
+                <option value="admin">admin (super only)</option>
+              </select>
+              <button class="btn green" onclick="addUser()">+ Add</button>
+            </div>
+            <div id="newUserResult" class="result">Password generated otomatis. User wajib ganti saat login pertama.</div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="grid-column:1/-1">
+        <div class="cardHead"><h3>Users</h3><button class="btn" onclick="loadUsers()">↻</button></div>
+        <div class="cardBody"><div id="userList" class="list"><div class="empty"><div class="emptyIcon">⏳</div><div>Loading...</div></div></div></div>
+      </div>
+    </section>
+
+    <section class="layout page" id="domains" data-page="domains">
+      <div class="card inboxTools">
+        <div class="cardHead"><h3>Add Domain</h3><span class="pill"><span class="dot"></span> super_admin only</span></div>
+        <div class="cardBody">
+          <div class="bodyPanel">
+            <label class="formLabel">Domain</label>
+            <div class="compose">
+              <div class="inputWrap"><input class="input" id="newDomain" placeholder="example.com"></div>
+              <select class="input" id="newDomainMode" style="max-width:200px">
+                <option value="public">public (semua bisa pakai)</option>
+                <option value="private">private (owner only)</option>
+              </select>
+              <button class="btn green" onclick="addDomain()">+ Add</button>
+            </div>
+            <label class="formLabel" style="margin-top:10px">Owner (optional, untuk mode private)</label>
+            <div class="inputWrap"><input class="input" id="newDomainOwner" placeholder="username (kosongi = self)"></div>
+            <div id="newDomainResult" class="result">Pastikan MX & A record di Cloudflare sudah di-set ke server ini sebelum add.</div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="grid-column:1/-1">
+        <div class="cardHead"><h3>Domains</h3><button class="btn" onclick="loadDomains()">↻</button></div>
+        <div class="cardBody"><div id="domainList" class="list"><div class="empty"><div class="emptyIcon">⏳</div><div>Loading...</div></div></div></div>
+      </div>
+    </section>
+
+    <section class="card page" id="audit" data-page="audit">
+      <div class="cardHead"><h3>Audit Log</h3><button class="btn" onclick="loadAudit()">↻</button></div>
+      <div class="cardBody"><div id="auditList" class="list"><div class="empty"><div class="emptyIcon">⏳</div><div>Loading...</div></div></div></div>
+    </section>
+
     <section class="card page" id="api" data-page="api">
       <div class="cardHead"><h3>Bot API</h3><button class="btn" onclick="copyApi()">⎘ Copy</button></div>
       <div class="cardBody"><div class="apiBox"><div class="apiToolbar"><span class="apiDot"></span><span class="apiDot"></span><span class="apiDot"></span><span style="margin-left:10px;font-size:11px;color:var(--txt-3);font-family:'JetBrains Mono',monospace">curl-examples.sh</span></div><pre id="apihelp" class="api"></pre></div></div>
@@ -798,15 +911,19 @@ async function createAddress(){let local=document.getElementById('local').value.
 function currentTo(){let v=document.getElementById('local').value.trim(); if(!v) return ''; return v.includes('@')?v:v+'@'+domain}
 async function refresh(){try{await status();let to=currentTo();let path='/api/messages?limit=80'+(to?'&to='+encodeURIComponent(to):'');let j=await api(path);let title=to?`Inbox: ${to}`:'All incoming';document.getElementById('inboxTitle').textContent=title;document.getElementById('list').innerHTML=j.messages.map(m=>{const raw=m.preview||'';const isHtml=/<\/?[a-z][^>]*>/i.test(raw)||/\{[^{}]*:[^{}]*\}/.test(raw)||/@(media|keyframes|font-face)/i.test(raw);const cleanPreview=isHtml?stripHtml(raw):raw;const tag=isHtml?'<span class="htmlTag">HTML</span>':'';return `<article class="msg" data-id="${m.id}" onclick="loadMsg(${m.id})"><div class="msgTop"><div class="subject">${esc(m.subject||'(no subject)')}${tag}</div><div class="time">#${m.id}</div></div><div class="meta">${esc(m.from)} → ${esc(m.rcpt_to)}<br>${esc(fmtTime(m.received_at))}</div><div class="preview">${esc(cleanPreview)}</div></article>`}).join('')||'<div class="empty"><div class="emptyIcon">📭</div><div>Belum ada email masuk<br><span style="font-size:11px;color:var(--txt-4)">Email akan muncul di sini secara real-time</span></div></div>'; }catch(e){document.getElementById('list').innerHTML='<div class="empty bad"><div class="emptyIcon">⚠</div><div>'+esc(e.message)+'</div></div>';toast('Error: '+e.message)}}
 function linkify(s){return String(s||'').replace(/(https?:\/\/[^\s<>"']+)/g,m=>`<a href="${m}" target="_blank" rel="noopener noreferrer">${m}</a>`)}
+function injectBaseTarget(html){
+  // Force semua link di HTML email buka di tab baru, bukan replace iframe.
+  const base='<base target="_blank">';
+  if(/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i,m=>m+base);
+  if(/<html[^>]*>/i.test(html)) return html.replace(/<html[^>]*>/i,m=>m+'<head>'+base+'</head>');
+  return base+html;
+}
 function renderBody(m,mode){
   if(mode==='raw'){return `<pre class="bodybox bodyRaw">${esc(m.raw||'')}</pre>`}
-  if(mode==='html' && m.html_body){
-    const srcdoc=m.html_body.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
-    return `<iframe class="bodyFrame" sandbox="allow-popups allow-popups-to-escape-sandbox" srcdoc="${srcdoc}"></iframe>`;
-  }
+  if(mode==='text'&&m.text_body){return `<div class="bodybox bodyText">${linkify(esc(m.text_body))}</div>`}
+  if(m.html_body){const srcdoc=injectBaseTarget(m.html_body).replace(/&/g,'&amp;').replace(/"/g,'&quot;');return `<iframe class="bodyFrame" sandbox="allow-popups allow-popups-to-escape-sandbox" srcdoc="${srcdoc}"></iframe>`}
   if(m.text_body){return `<div class="bodybox bodyText">${linkify(esc(m.text_body))}</div>`}
-  if(m.html_body){const srcdoc=m.html_body.replace(/&/g,'&amp;').replace(/"/g,'&quot;');return `<iframe class="bodyFrame" sandbox="allow-popups allow-popups-to-escape-sandbox" srcdoc="${srcdoc}"></iframe>`}
-  return `<pre class="bodybox bodyRaw">${esc(m.raw||'')}</pre>`;
+  return `<div class="empty">No body content.</div>`;
 }
 let currentMsg=null;
 function setBodyMode(mode){
@@ -834,23 +951,191 @@ async function loadMsg(id){
 }
 async function copyApi(){try{await navigator.clipboard.writeText(lastApiText);toast('API examples copied')}catch(e){toast('Copy failed')}}
 
+// === ROLE & DOMAIN STATE ===
+let me={username:'',role:''};
+let availDomains=[];
+async function loadMe(){try{me=await api('/api/whoami')}catch(e){me={username:'?',role:'user'}}return me}
+function applyRoleVisibility(){
+  const r=me.role;
+  document.querySelectorAll('[data-need]').forEach(el=>{
+    const need=el.dataset.need;
+    let ok=false;
+    if(need==='super')ok=(r==='super_admin');
+    else if(need==='admin')ok=(r==='super_admin'||r==='admin');
+    el.style.display=ok?'':'none';
+  });
+  // role pill text
+  const rp=document.getElementById('rolePill');
+  if(rp)rp.innerHTML='<span class="dot"></span> '+r;
+  // hide admin option in role select kalau bukan super
+  const ru=document.getElementById('newUserRole');
+  if(ru){
+    [...ru.options].forEach(o=>{ if(o.value==='admin'){o.disabled=(r!=='super_admin');o.hidden=(r!=='super_admin')} });
+  }
+}
+function refreshDomainSelect(){
+  const sel=document.getElementById('aliasDomain'); if(!sel) return;
+  sel.innerHTML=availDomains.map(d=>`<option value="${d.domain}">${d.domain}${d.mode==='private'?' (private)':''}</option>`).join('');
+}
+
+// === ALIAS PAGE ===
+async function claimAlias(kind){
+  const local=(document.getElementById('aliasLocal').value||'').trim();
+  const domain=document.getElementById('aliasDomain').value;
+  try{
+    const body=kind==='random'?{kind:'random',domain}:{kind:'custom',local,domain};
+    const j=await api('/api/aliases',{method:'POST',body:JSON.stringify(body)});
+    document.getElementById('aliasResult').textContent=JSON.stringify(j,null,2);
+    document.getElementById('aliasLocal').value='';
+    toast('Claimed: '+j.alias);
+    loadAliases();
+  }catch(e){document.getElementById('aliasResult').textContent=e.message;toast('Error: '+e.message)}
+}
+async function deleteAliasIt(alias){
+  if(!confirm('Hapus alias '+alias+' ?')) return;
+  try{ await api('/api/aliases/'+encodeURIComponent(alias),{method:'DELETE'}); toast('Deleted '+alias); loadAliases() }
+  catch(e){toast('Error: '+e.message)}
+}
+async function loadAliases(){
+  try{
+    const j=await api('/api/aliases');
+    const lim=j.custom_limit||3;
+    const used=(j.aliases||[]).filter(a=>a.kind==='custom').length;
+    const tot=(j.aliases||[]).length;
+    document.getElementById('aliasList').innerHTML=
+      `<div style="padding:0 0 12px;color:var(--txt-3);font-size:12px">Custom: ${used}/${lim} · Total: ${tot}</div>`+
+      ((j.aliases||[]).map(a=>`<article class="msg"><div class="msgTop"><div class="subject">${esc(a.alias)}<span class="htmlTag">${a.kind}</span></div><button class="btn" onclick="deleteAliasIt('${esc(a.alias)}')">🗑 Delete</button></div><div class="meta">${esc(a.created_at)}</div></article>`).join('')||'<div class="empty"><div class="emptyIcon">📭</div><div>Belum punya alias. Claim di atas.</div></div>');
+  }catch(e){document.getElementById('aliasList').innerHTML='<div class="empty bad">'+esc(e.message)+'</div>'}
+}
+
+// === USERS PAGE ===
+async function addUser(){
+  const username=(document.getElementById('newUserName').value||'').trim();
+  const role=document.getElementById('newUserRole').value;
+  try{
+    const j=await api('/api/users',{method:'POST',body:JSON.stringify({username,role})});
+    const div=document.getElementById('newUserResult');
+    div.innerHTML=`<div style="padding:12px;background:rgba(0,229,255,.06);border:1px solid var(--neon);border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.7">✓ User created<br>username: <b>${esc(j.username)}</b><br>role: ${esc(j.role)}<br>password: <b style="color:var(--neon-3);font-size:14px;user-select:all">${esc(j.initial_password)}</b><br><span style="color:var(--warn)">⚠ Password ini hanya muncul sekali. Catat & berikan ke user.</span></div>`;
+    document.getElementById('newUserName').value='';
+    toast('User '+j.username+' dibuat');
+    loadUsers();
+  }catch(e){document.getElementById('newUserResult').textContent=e.message;toast('Error: '+e.message)}
+}
+async function loadUsers(){
+  try{
+    const j=await api('/api/users');
+    document.getElementById('userList').innerHTML=(j.users||[]).map(u=>{
+      const lockBtn=(me.role==='super_admin'&&u.role!=='super_admin')?(u.locked?`<button class="btn" onclick="unlockUser('${esc(u.username)}')">🔓 Unlock</button>`:`<button class="btn" onclick="lockUser('${esc(u.username)}')">🔒 Lock</button>`):'';
+      const delBtn=(me.role==='super_admin'&&u.role!=='super_admin')?`<button class="btn" onclick="deleteUserIt('${esc(u.username)}')">🗑 Delete</button>`:'';
+      const pwBtn=(me.role==='super_admin'&&u.role!=='super_admin')?`<button class="btn" onclick="resetPw('${esc(u.username)}')">🔑 Reset PW</button>`:'';
+      const tag=u.locked?'<span class="htmlTag" style="background:rgba(255,92,92,.18);color:#ff8a8a;border-color:rgba(255,92,92,.4)">LOCKED</span>':(u.must_change_password?'<span class="htmlTag" style="background:rgba(255,180,84,.15);color:#ffb454">MUST CHANGE PW</span>':'');
+      const reason=u.lock_reason?`<br>Lock reason: <i>${esc(u.lock_reason)}</i>`:'';
+      return `<article class="msg"><div class="msgTop"><div class="subject">${esc(u.username)} <span class="htmlTag">${u.role}</span>${tag}</div><div>${pwBtn} ${lockBtn} ${delBtn}</div></div><div class="meta">created ${esc(u.created_at)} · by ${esc(u.created_by||'-')} · last login ${esc(u.last_login_at||'never')}${reason}</div></article>`;
+    }).join('')||'<div class="empty"><div class="emptyIcon">👥</div><div>No users</div></div>';
+  }catch(e){document.getElementById('userList').innerHTML='<div class="empty bad">'+esc(e.message)+'</div>'}
+}
+async function lockUser(u){
+  const reason=prompt('Alasan lock '+u+':'); if(reason===null) return;
+  if(!reason.trim()){toast('Alasan wajib');return}
+  try{await api('/api/users/'+u+'/lock',{method:'POST',body:JSON.stringify({reason})});toast('Locked '+u);loadUsers()}catch(e){toast('Error: '+e.message)}
+}
+async function unlockUser(u){
+  const reason=prompt('Alasan unlock '+u+' (opsional):')||'manual unlock';
+  try{await api('/api/users/'+u+'/unlock',{method:'POST',body:JSON.stringify({reason})});toast('Unlocked '+u);loadUsers()}catch(e){toast('Error: '+e.message)}
+}
+async function deleteUserIt(u){
+  const reason=prompt('Alasan delete '+u+' (wajib):'); if(reason===null) return;
+  if(!reason.trim()){toast('Alasan wajib');return}
+  try{await api('/api/users/'+u,{method:'DELETE',body:JSON.stringify({reason})});toast('Deleted '+u);loadUsers()}catch(e){toast('Error: '+e.message)}
+}
+async function resetPw(u){
+  if(!confirm('Reset password '+u+'? Password baru akan generate dan user wajib ganti saat login.')) return;
+  try{
+    const j=await api('/api/users/'+u+'/password',{method:'POST',body:JSON.stringify({})});
+    alert('New password untuk '+u+':\n\n'+j.new_password+'\n\nCATAT — password ini hanya muncul sekali.');
+    loadUsers();
+  }catch(e){toast('Error: '+e.message)}
+}
+
+// === DOMAINS PAGE ===
+async function addDomain(){
+  const domain=(document.getElementById('newDomain').value||'').trim();
+  const mode=document.getElementById('newDomainMode').value;
+  const owner=(document.getElementById('newDomainOwner').value||'').trim();
+  try{
+    const j=await api('/api/domains',{method:'POST',body:JSON.stringify({domain,mode,owner})});
+    document.getElementById('newDomainResult').textContent='✓ Added: '+JSON.stringify(j);
+    document.getElementById('newDomain').value='';
+    document.getElementById('newDomainOwner').value='';
+    toast('Domain '+j.domain+' added');
+    loadDomains();status();
+  }catch(e){document.getElementById('newDomainResult').textContent=e.message;toast('Error: '+e.message)}
+}
+async function loadDomains(){
+  try{
+    const j=await api('/api/domains');
+    document.getElementById('domainList').innerHTML=(j.domains||[]).map(d=>{
+      const tag=`<span class="htmlTag">${d.mode}</span>${d.enabled?'':'<span class="htmlTag" style="background:rgba(255,92,92,.18);color:#ff8a8a">DISABLED</span>'}`;
+      const toggle=`<button class="btn" onclick="toggleDomain('${esc(d.domain)}',${!d.enabled})">${d.enabled?'⏸ Disable':'▶ Enable'}</button>`;
+      const modeBtn=d.mode==='public'?`<button class="btn" onclick="setDomainMode('${esc(d.domain)}','private')">→ Private</button>`:`<button class="btn" onclick="setDomainMode('${esc(d.domain)}','public')">→ Public</button>`;
+      const del=`<button class="btn" onclick="delDomain('${esc(d.domain)}')">🗑</button>`;
+      return `<article class="msg"><div class="msgTop"><div class="subject">${esc(d.domain)} ${tag}</div><div>${modeBtn} ${toggle} ${del}</div></div><div class="meta">added ${esc(d.added_at)} · by ${esc(d.added_by||'-')} · owner ${esc(d.owner||'-')}</div></article>`;
+    }).join('')||'<div class="empty"><div class="emptyIcon">🌐</div><div>No domains</div></div>';
+  }catch(e){document.getElementById('domainList').innerHTML='<div class="empty bad">'+esc(e.message)+'</div>'}
+}
+async function toggleDomain(d,enabled){try{await api('/api/domains/'+d,{method:'POST',body:JSON.stringify({enabled})});toast(d+' '+(enabled?'enabled':'disabled'));loadDomains()}catch(e){toast(e.message)}}
+async function setDomainMode(d,mode){try{await api('/api/domains/'+d,{method:'POST',body:JSON.stringify({mode})});toast(d+' → '+mode);loadDomains()}catch(e){toast(e.message)}}
+async function delDomain(d){if(!confirm('Hapus domain '+d+' ? (Alias-nya harus kosong dulu)')) return;try{await api('/api/domains/'+d,{method:'DELETE'});toast('Deleted '+d);loadDomains()}catch(e){toast('Error: '+e.message)}}
+
+// === AUDIT PAGE ===
+async function loadAudit(){
+  try{
+    const j=await api('/api/audit?limit=200');
+    document.getElementById('auditList').innerHTML=(j.audit||[]).map(r=>{
+      const meta=Object.keys(r.meta||{}).length?` <span class="htmlTag" style="background:rgba(255,255,255,.04)">${esc(JSON.stringify(r.meta))}</span>`:'';
+      const reason=r.reason?`<br>reason: <i>${esc(r.reason)}</i>`:'';
+      return `<article class="msg"><div class="msgTop"><div class="subject"><b>${esc(r.action)}</b> ${esc(r.target||'-')}<span class="htmlTag">${esc(r.actor)}</span></div><div class="time">#${r.id}</div></div><div class="meta">${esc(r.ts)}${meta}${reason}</div></article>`;
+    }).join('')||'<div class="empty"><div class="emptyIcon">📜</div><div>No audit entries</div></div>';
+  }catch(e){document.getElementById('auditList').innerHTML='<div class="empty bad">'+esc(e.message)+'</div>'}
+}
+
 const pageMeta={
   inbox:['Inbox','Tangkap email ke <b>*@DOMAIN</b>, baca isinya, ambil OTP via API.'],
+  aliases:['Aliases','Claim alias kustom (max 3) atau random unlimited. 1 alias = 1 owner.'],
+  users:['Users','Tambah & kelola user. Admin add user · super_admin add admin & user.'],
+  domains:['Domains','Tambah domain custom. public = semua bisa pakai · private = owner only.'],
+  audit:['Audit Log','Jejak admin: add/delete/lock/unlock dengan alasan & timestamp.'],
   api:['Bot API','Endpoint siap pakai: ready email, list inbox, wait latest OTP.'],
-  status:['Status','Realtime SMTP receiver, total messages, dan domain config.']
+  status:['Status','Realtime SMTP receiver, total messages, retention, dan domain config.']
 };
 function route(){
   let page=(location.hash||'#inbox').replace('#','')||'inbox';
   if(page==='create') page='inbox'; if(!pageMeta[page]) page='inbox';
+  // Block akses page yang butuh role lebih tinggi
+  if(page==='users'&&!(me.role==='super_admin'||me.role==='admin')) page='inbox';
+  if((page==='domains'||page==='audit')&&me.role!=='super_admin') page='inbox';
   document.querySelectorAll('.page').forEach(el=>el.classList.toggle('active',el.dataset.page===page));
   document.querySelectorAll('.nav a[data-page]').forEach(a=>a.classList.toggle('active',a.dataset.page===page));
   let meta=pageMeta[page];
   document.getElementById('pageTitle').textContent=meta[0];
   document.getElementById('pageSubtitle').innerHTML=meta[1].replace('DOMAIN',(domain||'domain'));
-  if(page==='inbox') refresh(); else status().catch(e=>toast(e.message));
+  if(page==='inbox') refresh();
+  else if(page==='aliases') loadAliases();
+  else if(page==='users') loadUsers();
+  else if(page==='domains') loadDomains();
+  else if(page==='audit') loadAudit();
+  else status().catch(e=>toast(e.message));
 }
 window.addEventListener('hashchange',route);
-status().then(()=>{route();refresh()}).catch(e=>toast(e.message));
+(async()=>{
+  await loadMe();
+  applyRoleVisibility();
+  const s=await status().catch(e=>{toast(e.message);return{}});
+  availDomains=s.domains||[{domain:domain}];
+  refreshDomainSelect();
+  route();
+  refresh();
+})();
 setInterval(()=>{((location.hash||'#inbox').replace('#','')==='inbox')?refresh():status()},15000);
 </script>
 </body>
@@ -928,11 +1213,12 @@ label{font-size:11px;font-weight:600;color:var(--sub);text-transform:uppercase;l
 }
 input{
   width:100%;border:0;background:transparent;
-  padding:15px 16px;color:#fff;
-  font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:600;
-  letter-spacing:8px;text-align:center;outline:0;
+  padding:14px 16px;color:#fff;
+  font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:500;
+  letter-spacing:.5px;outline:0;
 }
-input::placeholder{letter-spacing:6px;color:rgba(255,255,255,.12)}
+input::placeholder{color:rgba(255,255,255,.18)}
+.field+.field{margin-top:14px}
 button{
   cursor:pointer;border:0;
   background:linear-gradient(135deg,var(--neon-2),#5a3eff);
@@ -963,20 +1249,91 @@ button:active{transform:translateY(0)}
     <div class="mark">B</div>
     <div>
       <h1>TempMail</h1>
-      <p class="sub">example.com · access required</p>
+      <p class="sub">self-hosted · access required</p>
     </div>
   </div>
   <form method="POST" action="/login" autocomplete="off">
-    <div>
-      <label for="code">Access code</label>
-      <div class="inputWrap"><input id="code" name="code" type="password" inputmode="numeric" autocomplete="off" placeholder="••••" autofocus required></div>
+    <div class="field">
+      <label for="username">Username</label>
+      <div class="inputWrap"><input id="username" name="username" type="text" autocomplete="username" placeholder="6715" autofocus required></div>
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <div class="inputWrap"><input id="password" name="password" type="password" autocomplete="current-password" placeholder="••••••••" required></div>
     </div>
     <button type="submit">Authenticate →</button>
     __ERROR__
   </form>
-  <div class="foot">Session 7 days · <span>encrypted</span> · self-hosted</div>
+  <div class="foot">Session 7 days · <span>encrypted</span> · single device</div>
 </div>
-<script>document.getElementById('code').focus();</script>
+<script>document.getElementById('username').focus();</script>
+</body>
+</html>
+"""
+
+
+CHANGE_PW_HTML = """<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Change Password · TempMail</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#000;--card:#0a0c10;--line:rgba(255,255,255,.06);--line2:rgba(255,255,255,.10);--neon:#00e5ff;--neon-2:#7c5cff;--neon-3:#ff3d8b;--ok:#22d995;--text:#f3f4f7;--sub:#aab1bd;--muted:#6b7280;--bad:#ff5c5c;--warn:#ffb454}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:radial-gradient(1200px 700px at 20% -10%,rgba(124,92,255,.14),transparent 60%),radial-gradient(900px 500px at 100% 110%,rgba(0,229,255,.08),transparent 60%),var(--bg);
+  color:var(--text);font-family:'Inter',sans-serif;display:grid;place-items:center;padding:20px;
+}
+.box{width:100%;max-width:440px;padding:36px 32px 32px;background:linear-gradient(180deg,rgba(15,18,24,.85),rgba(8,10,14,.95));border:1px solid var(--line);border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,.6);backdrop-filter:blur(20px)}
+.logo{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+.mark{width:42px;height:42px;border-radius:11px;background:conic-gradient(from 200deg,var(--neon),var(--neon-2),var(--neon-3),var(--neon));display:grid;place-items:center;color:#000;font-weight:800;box-shadow:0 0 28px rgba(0,229,255,.45)}
+h1{font-size:17px;font-weight:700}
+.sub{margin-top:2px;font-size:12px;color:var(--muted);font-family:'JetBrains Mono',monospace}
+.notice{margin-top:18px;padding:11px 14px;background:rgba(255,180,84,.08);border:1px solid rgba(255,180,84,.25);border-radius:9px;color:var(--warn);font-size:12.5px;line-height:1.5}
+.notice b{color:#ffd28c}
+form{margin-top:18px;display:grid;gap:12px}
+label{font-size:11px;font-weight:600;color:var(--sub);text-transform:uppercase;letter-spacing:.1em}
+.inputWrap{margin-top:6px;border:1px solid var(--line2);background:#000;border-radius:10px;overflow:hidden;transition:all .15s ease}
+.inputWrap:focus-within{border-color:var(--neon);box-shadow:0 0 0 3px rgba(0,229,255,.12)}
+input{width:100%;border:0;background:transparent;padding:13px 14px;color:#fff;font-family:'JetBrains Mono',monospace;font-size:14px;outline:0}
+button{cursor:pointer;border:0;background:linear-gradient(135deg,var(--neon-2),#5a3eff);color:#fff;padding:14px 20px;border-radius:10px;font-weight:700;font-size:13px;letter-spacing:.5px;text-transform:uppercase;box-shadow:0 8px 24px rgba(124,92,255,.35)}
+button:hover{transform:translateY(-1px)}
+.err{margin-top:4px;padding:11px 14px;background:rgba(255,92,92,.08);border:1px solid rgba(255,92,92,.25);border-radius:9px;color:var(--bad);font-size:12.5px;text-align:center}
+.policy{margin-top:6px;font-size:11.5px;color:var(--muted);line-height:1.6;font-family:'JetBrains Mono',monospace}
+.policy li{margin-left:14px}
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="logo"><div class="mark">B</div><div><h1>Set new password</h1><p class="sub">first login · required</p></div></div>
+  <div class="notice">⚠ <b>Mandatory.</b> Password sementara harus diganti sebelum lanjut ke dashboard.</div>
+  <form method="POST" action="/change-password" autocomplete="off">
+    <div>
+      <label for="current">Current password</label>
+      <div class="inputWrap"><input id="current" name="current" type="password" autocomplete="current-password" required></div>
+    </div>
+    <div>
+      <label for="new">New password</label>
+      <div class="inputWrap"><input id="new" name="new" type="password" autocomplete="new-password" required></div>
+      <ul class="policy">
+        <li>min 8 chars</li>
+        <li>≥1 huruf KAPITAL</li>
+        <li>≥1 angka</li>
+        <li>≥1 simbol (!@#$ dll)</li>
+      </ul>
+    </div>
+    <div>
+      <label for="confirm">Confirm new password</label>
+      <div class="inputWrap"><input id="confirm" name="confirm" type="password" autocomplete="new-password" required></div>
+    </div>
+    <button type="submit">Save new password →</button>
+    __ERROR__
+  </form>
+</div>
 </body>
 </html>
 """
@@ -994,23 +1351,45 @@ class Handler(BaseHTTPRequestHandler):
                 return part[len(name)+1:]
         return ""
 
-    def authed(self):
-        # 1. API token via header (untuk script/bot)
+    def current_user(self):
+        """Return user dict {username, role, must_change_password, ...} atau None.
+
+        Order:
+          1. master API token via x-api-token (super_admin power, untuk script/bot)
+          2. session cookie (per-user dari users table)
+        """
+        # 1. Master API token = super_admin level
         if API_TOKEN and self.headers.get("x-api-token") == API_TOKEN:
-            return True
-        # 2. Session cookie (untuk dashboard browser)
+            return {"username": "_api_token", "role": au.ROLE_SUPER,
+                    "must_change_password": 0, "via": "api_token"}
+        # 2. Session cookie
         sid = self._read_cookie("tm_sid")
-        if _session_valid(sid):
-            return True
-        # 3. Backward-compat: ?token= di URL (deprecated, masih jalan)
+        if sid:
+            with db() as c:
+                u = au.get_session(c, sid)
+                if u:
+                    u["via"] = "cookie"
+                    return u
+        # 3. Backward-compat: ?token= di URL
         if API_TOKEN:
             qs = parse_qs(urlparse(self.path).query)
             if qs.get("token", [""])[0] == API_TOKEN:
-                return True
-        # 4. Kalau auth tidak dikonfigurasi sama sekali, allow (mode dev)
-        if not API_TOKEN and not ACCESS_CODE:
-            return True
-        return False
+                return {"username": "_api_token", "role": au.ROLE_SUPER,
+                        "must_change_password": 0, "via": "api_token_qs"}
+        return None
+
+    def authed(self):
+        return self.current_user() is not None
+
+    def require_role(self, *roles):
+        u = self.current_user()
+        if not u:
+            self.send_json({"error": "unauthorized"}, 401)
+            return None
+        if u["role"] not in roles:
+            self.send_json({"error": "forbidden"}, 403)
+            return None
+        return u
 
     def send_json(self, obj, status=200):
         data = json_bytes(obj)
@@ -1031,6 +1410,17 @@ class Handler(BaseHTTPRequestHandler):
     def send_login_html(self, error=""):
         err_html = f'<div class="err">{html.escape(error)}</div>' if error else ''
         page = LOGIN_HTML.replace("__ERROR__", err_html)
+        data = page.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def send_change_pw_html(self, error=""):
+        err_html = f'<div class="err">{html.escape(error)}</div>' if error else ''
+        page = CHANGE_PW_HTML.replace("__ERROR__", err_html)
         data = page.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1081,89 +1471,243 @@ class Handler(BaseHTTPRequestHandler):
             return "", ""
         if "@" in raw:
             local, dom = raw.split("@", 1)
-            if dom.lower() != DOMAIN:
-                raise RuntimeError(f"domain harus {DOMAIN}")
+            # Multi-domain: cek apakah dom terdaftar di tabel domains, fallback ke DOMAIN
+            with db() as c:
+                if not ad.domain_is_accepted(c, dom):
+                    raise RuntimeError(f"domain '{dom}' tidak terdaftar")
+            target_domain = dom
         else:
             local = raw
+            target_domain = DOMAIN
         if not LOCAL_RE.match(local):
             raise RuntimeError("user/alias invalid. Pakai huruf/angka/dot/underscore/plus/minus max 64 char")
-        return local, f"{local}@{DOMAIN}"
+        return local, f"{local}@{target_domain}"
+
+    def _assert_can_use_address(self, user, addr):
+        """Raise PermissionError kalau user tidak boleh akses alias addr.
+
+        super_admin & API token = bypass.
+        Selain itu: user hanya boleh akses alias yang dia claim.
+        """
+        if not user:
+            raise PermissionError("unauthorized")
+        if user["role"] == au.ROLE_SUPER:
+            return
+        with db() as c:
+            owner = ad.get_alias_owner(c, addr)
+        if owner is None:
+            raise PermissionError(f"Alias '{addr}' belum di-claim. Claim dulu di /api/aliases.")
+        if owner.lower() != (user.get("username") or "").lower():
+            raise PermissionError(f"Alias '{addr}' milik user lain.")
 
     def do_GET(self):
         path = urlparse(self.path).path
         if path == "/login":
             return self.send_login_html()
+        if path == "/change-password":
+            u = self.current_user()
+            if not u:
+                return self.redirect("/login")
+            return self.send_change_pw_html()
         if path == "/logout":
             sid = self._read_cookie("tm_sid")
             if sid:
-                _session_revoke(sid)
+                with db() as c:
+                    au.revoke_session(c, sid)
             return self.redirect("/login", clear_cookie="tm_sid=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0")
         if path == "/":
-            # If access code is set and user is not authed, redirect to login
-            if ACCESS_CODE and not self.authed():
+            u = self.current_user()
+            if not u:
                 return self.redirect("/login")
+            if u.get("must_change_password"):
+                return self.redirect("/change-password")
             return self.send_html()
         if not self.authed():
             return self.send_json({"error": "unauthorized"}, 401)
         try:
-            if path == "/api/status":
-                with db() as c:
-                    mc = c.execute("SELECT COUNT(*) n FROM messages").fetchone()["n"]
-                    ac = c.execute("SELECT COUNT(*) n FROM addresses").fetchone()["n"]
-                return self.send_json({"domain": DOMAIN, "smtp_port": SMTP_PORT, "web_port": WEB_PORT, "messages": mc, "addresses": ac, "auth": bool(API_TOKEN)})
-            if path == "/api/ready":
-                qs = parse_qs(urlparse(self.path).query)
-                local, addr = self.requested_address(qs=qs)
-                if not addr:
-                    raise RuntimeError("isi parameter user/local/to, contoh /api/ready?user=telegram")
-                label = qs.get("label", [""])[0].strip()
-                with db() as c:
-                    c.execute("INSERT OR IGNORE INTO addresses(address,label,created_at) VALUES(?,?,?)", (addr, label, now_iso()))
-                    count = c.execute("SELECT COUNT(*) n FROM messages WHERE rcpt_to=?", (addr,)).fetchone()["n"]
-                    latest = c.execute("SELECT * FROM messages WHERE rcpt_to=? ORDER BY id DESC LIMIT 1", (addr,)).fetchone()
-                return self.send_json({"ready": True, "user": local, "address": addr, "messages": count, "latest": row_to_summary(latest) if latest else None, "api": {"list": f"/api/messages?user={local}&limit=20", "latest": f"/api/latest?user={local}&wait=30"}})
-            if path == "/api/messages":
-                qs = parse_qs(urlparse(self.path).query)
-                _local, to = self.requested_address(qs=qs)
-                limit = min(int(qs.get("limit", ["50"])[0]), 200)
-                with db() as c:
-                    if to:
-                        rows = c.execute("SELECT * FROM messages WHERE rcpt_to=? ORDER BY id DESC LIMIT ?", (to, limit)).fetchall()
-                    else:
-                        rows = c.execute("SELECT * FROM messages ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
-                return self.send_json({"address": to or None, "messages": [row_to_summary(r) for r in rows]})
-            if path == "/api/latest":
-                qs = parse_qs(urlparse(self.path).query)
-                _local, to = self.requested_address(qs=qs)
-                since_id = int(qs.get("since_id", ["0"])[0])
-                wait = min(int(qs.get("wait", ["0"])[0]), 60)
-                deadline = time.time() + wait
-                while True:
-                    with db() as c:
-                        if to:
-                            r = c.execute("SELECT * FROM messages WHERE rcpt_to=? AND id>? ORDER BY id DESC LIMIT 1", (to, since_id)).fetchone()
-                        else:
-                            r = c.execute("SELECT * FROM messages WHERE id>? ORDER BY id DESC LIMIT 1", (since_id,)).fetchone()
-                    if r:
-                        return self.send_json(row_to_full(r))
-                    if time.time() >= deadline:
-                        return self.send_json({"message": None})
-                    time.sleep(1)
-            m = re.match(r"^/api/messages/(\d+)$", path)
-            if m:
-                mid = int(m.group(1))
-                with db() as c:
-                    r = c.execute("SELECT * FROM messages WHERE id=?", (mid,)).fetchone()
-                if not r:
-                    return self.send_json({"error": "not found"}, 404)
-                return self.send_json(row_to_full(r))
-            if path == "/api/addresses":
-                with db() as c:
-                    rows = c.execute("SELECT * FROM addresses ORDER BY created_at DESC LIMIT 500").fetchall()
-                return self.send_json({"addresses": [dict(r) for r in rows]})
-            return self.send_json({"error": "not found"}, 404)
+            return self._handle_get(path)
+        except PermissionError as e:
+            return self.send_json({"error": str(e) or "forbidden"}, 403)
+        except ValueError as e:
+            return self.send_json({"error": str(e)}, 400)
         except Exception as e:
             return self.send_json({"error": str(e)}, 500)
+
+    def _handle_get(self, path):
+        u = self.current_user()
+        qs = parse_qs(urlparse(self.path).query)
+        # ── Status / whoami ──
+        if path == "/api/status":
+            with db() as c:
+                if u["role"] == au.ROLE_SUPER:
+                    mc = c.execute("SELECT COUNT(*) n FROM messages").fetchone()["n"]
+                else:
+                    mc = c.execute(
+                        "SELECT COUNT(*) n FROM messages m JOIN aliases a ON a.alias=m.rcpt_to "
+                        "WHERE a.owner=?", (u["username"],)
+                    ).fetchone()["n"]
+                ac = c.execute("SELECT COUNT(*) n FROM aliases WHERE owner=?",
+                               (u["username"],)).fetchone()["n"] if u["role"] != au.ROLE_SUPER \
+                     else c.execute("SELECT COUNT(*) n FROM aliases").fetchone()["n"]
+                domains = ad.list_visible_domains(c, role=u["role"], username=u["username"])
+            return self.send_json({
+                "domain": DOMAIN, "smtp_port": SMTP_PORT, "web_port": WEB_PORT,
+                "messages": mc, "addresses": ac,
+                "auth": True,
+                "user": {"username": u["username"], "role": u["role"]},
+                "domains": domains,
+                "retention_hours": EMAIL_RETENTION_HOURS,
+            })
+        if path == "/api/whoami":
+            return self.send_json({
+                "username": u["username"], "role": u["role"],
+                "must_change_password": bool(u.get("must_change_password")),
+            })
+
+        # ── Aliases ──
+        if path == "/api/aliases":
+            with db() as c:
+                owner = u["username"] if u["role"] != au.ROLE_SUPER else qs.get("owner", [None])[0]
+                rows = ad.list_aliases(c, owner=owner)
+            return self.send_json({"aliases": rows,
+                                   "custom_limit": ad.CUSTOM_ALIAS_LIMIT})
+
+        # ── Domains ──
+        if path == "/api/domains":
+            with db() as c:
+                if u["role"] == au.ROLE_SUPER:
+                    rows = ad.list_domains(c)
+                else:
+                    rows = ad.list_visible_domains(c, role=u["role"], username=u["username"])
+            return self.send_json({"domains": rows})
+
+        # ── Users (super_admin & admin lihat list) ──
+        if path == "/api/users":
+            actor = self.require_role(au.ROLE_SUPER, au.ROLE_ADMIN)
+            if not actor:
+                return
+            with db() as c:
+                rows = au.list_users(c)
+            return self.send_json({"users": rows})
+
+        # ── Audit log (super_admin only) ──
+        if path == "/api/audit":
+            actor = self.require_role(au.ROLE_SUPER)
+            if not actor:
+                return
+            with db() as c:
+                rows = au.list_audit(
+                    c,
+                    limit=int(qs.get("limit", ["200"])[0]),
+                    action=qs.get("action", [None])[0],
+                    target=qs.get("target", [None])[0],
+                )
+            return self.send_json({"audit": rows})
+
+        # ── Ready (compat) ──
+        if path == "/api/ready":
+            local, addr = self.requested_address(qs=qs)
+            if not addr:
+                raise ValueError("isi parameter user/local/to, contoh /api/ready?user=telegram")
+            self._assert_can_use_address(u, addr)
+            label = qs.get("label", [""])[0].strip()
+            with db() as c:
+                c.execute("INSERT OR IGNORE INTO addresses(address,label,created_at) VALUES(?,?,?)",
+                          (addr, label, now_iso()))
+                count = c.execute("SELECT COUNT(*) n FROM messages WHERE rcpt_to=?", (addr,)).fetchone()["n"]
+                latest = c.execute("SELECT * FROM messages WHERE rcpt_to=? ORDER BY id DESC LIMIT 1", (addr,)).fetchone()
+            return self.send_json({
+                "ready": True, "user": local, "address": addr, "messages": count,
+                "latest": row_to_summary(latest) if latest else None,
+                "api": {"list": f"/api/messages?user={local}&limit=20",
+                        "latest": f"/api/latest?user={local}&wait=30"}
+            })
+
+        # ── Messages list ──
+        if path == "/api/messages":
+            _local, to = self.requested_address(qs=qs)
+            limit = min(int(qs.get("limit", ["50"])[0]), 200)
+            with db() as c:
+                if to:
+                    self._assert_can_use_address(u, to)
+                    rows = c.execute(
+                        "SELECT * FROM messages WHERE rcpt_to=? ORDER BY id DESC LIMIT ?",
+                        (to, limit),
+                    ).fetchall()
+                else:
+                    if u["role"] == au.ROLE_SUPER:
+                        rows = c.execute(
+                            "SELECT * FROM messages ORDER BY id DESC LIMIT ?", (limit,)
+                        ).fetchall()
+                    else:
+                        rows = c.execute(
+                            "SELECT m.* FROM messages m JOIN aliases a ON a.alias=m.rcpt_to "
+                            "WHERE a.owner=? ORDER BY m.id DESC LIMIT ?",
+                            (u["username"], limit),
+                        ).fetchall()
+            return self.send_json({"address": to or None,
+                                   "messages": [row_to_summary(r) for r in rows]})
+
+        # ── Latest (poll) ──
+        if path == "/api/latest":
+            _local, to = self.requested_address(qs=qs)
+            if to:
+                self._assert_can_use_address(u, to)
+            since_id = int(qs.get("since_id", ["0"])[0])
+            wait = min(int(qs.get("wait", ["0"])[0]), 60)
+            deadline = time.time() + wait
+            while True:
+                with db() as c:
+                    if to:
+                        r = c.execute(
+                            "SELECT * FROM messages WHERE rcpt_to=? AND id>? ORDER BY id DESC LIMIT 1",
+                            (to, since_id),
+                        ).fetchone()
+                    else:
+                        if u["role"] == au.ROLE_SUPER:
+                            r = c.execute(
+                                "SELECT * FROM messages WHERE id>? ORDER BY id DESC LIMIT 1",
+                                (since_id,),
+                            ).fetchone()
+                        else:
+                            r = c.execute(
+                                "SELECT m.* FROM messages m JOIN aliases a ON a.alias=m.rcpt_to "
+                                "WHERE a.owner=? AND m.id>? ORDER BY m.id DESC LIMIT 1",
+                                (u["username"], since_id),
+                            ).fetchone()
+                if r:
+                    return self.send_json(row_to_full(r))
+                if time.time() >= deadline:
+                    return self.send_json({"message": None})
+                time.sleep(1)
+
+        # ── Single message ──
+        m = re.match(r"^/api/messages/(\d+)$", path)
+        if m:
+            mid = int(m.group(1))
+            with db() as c:
+                r = c.execute("SELECT * FROM messages WHERE id=?", (mid,)).fetchone()
+            if not r:
+                return self.send_json({"error": "not found"}, 404)
+            if u["role"] != au.ROLE_SUPER:
+                # owner check
+                with db() as c:
+                    owner = ad.get_alias_owner(c, r["rcpt_to"])
+                if not owner or owner.lower() != u["username"].lower():
+                    return self.send_json({"error": "forbidden"}, 403)
+            return self.send_json(row_to_full(r))
+
+        if path == "/api/addresses":
+            # Legacy — return aliases yang user punya
+            with db() as c:
+                owner = None if u["role"] == au.ROLE_SUPER else u["username"]
+                rows = ad.list_aliases(c, owner=owner)
+            return self.send_json({"addresses": [{"address": r["alias"],
+                                                  "label": r.get("kind"),
+                                                  "created_at": r["created_at"]}
+                                                 for r in rows]})
+
+        return self.send_json({"error": "not found"}, 404)
 
     def do_POST(self):
         path = urlparse(self.path).path
@@ -1172,79 +1716,300 @@ class Handler(BaseHTTPRequestHandler):
             ip = self.client_address[0]
             ok, retry = _login_check_rate(ip)
             if not ok:
-                return self.send_login_html(error=f"Terlalu banyak percobaan. Coba lagi dalam {retry} detik.")
+                return self.send_login_html(error=f"Terlalu banyak percobaan dari IP ini. Coba lagi dalam {retry} detik.")
             n = int(self.headers.get("content-length") or 0)
             raw = self.rfile.read(n).decode("utf-8") if n else ""
             ctype = self.headers.get("content-type") or ""
-            code = ""
-            if "application/x-www-form-urlencoded" in ctype:
-                code = parse_qs(raw).get("code", [""])[0].strip()
-            elif "application/json" in ctype:
+            username = ""
+            password = ""
+            if "application/json" in ctype:
                 try:
-                    code = (json.loads(raw or "{}").get("code") or "").strip()
+                    j = json.loads(raw or "{}")
+                    username = (j.get("username") or "").strip()
+                    password = j.get("password") or ""
                 except Exception:
-                    code = ""
+                    pass
             else:
-                code = parse_qs(raw).get("code", [""])[0].strip()
-            if not ACCESS_CODE:
-                return self.send_login_html(error="Login dimatikan: ACCESS_CODE belum di-set di .env")
-            if code != ACCESS_CODE:
-                _login_record_fail(ip)
-                return self.send_login_html(error="Access code salah. Coba lagi.")
-            # Success: clear fail counter, issue session
-            _login_clear(ip)
-            sid = _new_session()
-            cookie = f"tm_sid={sid}; Path=/; HttpOnly; SameSite=Lax; Max-Age={SESSION_TTL}"
+                form = parse_qs(raw)
+                username = (form.get("username", [""])[0] or "").strip()
+                password = form.get("password", [""])[0] or ""
+            with db() as c:
+                user, err = au.authenticate(c, username=username, password=password)
+                if err or not user:
+                    _login_record_fail(ip)
+                    return self.send_login_html(error=err or "Login gagal.")
+                _login_clear(ip)
+                ua = self.headers.get("user-agent", "")
+                sid = au.create_session(c, username=user["username"], ip=ip, user_agent=ua)
+            cookie = f"tm_sid={sid}; Path=/; HttpOnly; SameSite=Lax; Max-Age={au.SESSION_TTL_SEC}"
+            # User wajib ganti password kalau flag must_change_password
+            target = "/change-password" if user.get("must_change_password") else "/"
+            return self.redirect(target, set_cookie=cookie)
+        # Change password endpoint — wajib login dulu
+        if path == "/change-password":
+            u = self.current_user()
+            if not u:
+                return self.redirect("/login")
+            n = int(self.headers.get("content-length") or 0)
+            raw = self.rfile.read(n).decode("utf-8") if n else ""
+            ctype = self.headers.get("content-type") or ""
+            cur_pw = new_pw = confirm_pw = ""
+            if "application/json" in ctype:
+                try:
+                    j = json.loads(raw or "{}")
+                    cur_pw = j.get("current") or ""
+                    new_pw = j.get("new") or ""
+                    confirm_pw = j.get("confirm") or ""
+                except Exception:
+                    pass
+            else:
+                form = parse_qs(raw)
+                cur_pw = form.get("current", [""])[0]
+                new_pw = form.get("new", [""])[0]
+                confirm_pw = form.get("confirm", [""])[0]
+            if new_pw != confirm_pw:
+                return self.send_change_pw_html(error="Konfirmasi password tidak cocok.")
+            with db() as c:
+                user_row = au.get_user(c, u["username"])
+                if not user_row or not au.verify_password(cur_pw, user_row["password_hash"], user_row["password_salt"]):
+                    return self.send_change_pw_html(error="Password lama salah.")
+                ok, msg = au.password_meets_policy(new_pw)
+                if not ok:
+                    return self.send_change_pw_html(error=msg)
+                au.change_password(c, username=u["username"], new_password=new_pw,
+                                   actor=u["username"])
+                # change_password() invalidate semua session — buat session baru
+                ua = self.headers.get("user-agent", "")
+                sid = au.create_session(c, username=u["username"],
+                                        ip=self.client_address[0], user_agent=ua)
+            cookie = f"tm_sid={sid}; Path=/; HttpOnly; SameSite=Lax; Max-Age={au.SESSION_TTL_SEC}"
             return self.redirect("/", set_cookie=cookie)
         if not self.authed():
             return self.send_json({"error": "unauthorized"}, 401)
         try:
-            if path == "/api/ready":
-                b = self.body()
-                local, addr = self.requested_address(body=b)
-                if not addr:
-                    raise RuntimeError("isi JSON user/local/to, contoh {\"user\":\"telegram\"}")
-                label = (b.get("label") or "").strip()
-                with db() as c:
-                    c.execute("INSERT OR IGNORE INTO addresses(address,label,created_at) VALUES(?,?,?)", (addr, label, now_iso()))
-                    count = c.execute("SELECT COUNT(*) n FROM messages WHERE rcpt_to=?", (addr,)).fetchone()["n"]
-                    latest = c.execute("SELECT * FROM messages WHERE rcpt_to=? ORDER BY id DESC LIMIT 1", (addr,)).fetchone()
-                return self.send_json({"ready": True, "user": local, "address": addr, "messages": count, "latest": row_to_summary(latest) if latest else None, "api": {"list": f"/api/messages?user={local}&limit=20", "latest": f"/api/latest?user={local}&wait=30"}})
-            if path == "/api/address":
-                b = self.body()
-                local = (b.get("local") or "").strip().lower()
-                label = (b.get("label") or "").strip()
-                if not local:
-                    local = "tmp" + "".join(random.choice(string.ascii_lowercase + string.digits) for _ in range(10))
-                if "@" in local:
-                    local, dom = local.split("@", 1)
-                    if dom.lower() != DOMAIN:
-                        raise RuntimeError(f"domain harus {DOMAIN}")
-                if not LOCAL_RE.match(local):
-                    raise RuntimeError("alias invalid. Pakai huruf/angka/dot/underscore/plus/minus max 64 char")
-                addr = f"{local}@{DOMAIN}"
-                with db() as c:
-                    c.execute("INSERT OR IGNORE INTO addresses(address,label,created_at) VALUES(?,?,?)", (addr, label, now_iso()))
-                return self.send_json({"address": addr})
-            return self.send_json({"error": "not found"}, 404)
+            return self._handle_post(path)
+        except PermissionError as e:
+            return self.send_json({"error": str(e) or "forbidden"}, 403)
+        except ValueError as e:
+            return self.send_json({"error": str(e)}, 400)
         except Exception as e:
             return self.send_json({"error": str(e)}, 500)
 
+    def _handle_post(self, path):
+        u = self.current_user()
+        b = self.body()
+        # ── Existing endpoints (compat) ──
+        if path == "/api/ready":
+            local, addr = self.requested_address(body=b)
+            if not addr:
+                raise ValueError("isi JSON user/local/to")
+            self._assert_can_use_address(u, addr)
+            label = (b.get("label") or "").strip()
+            with db() as c:
+                c.execute("INSERT OR IGNORE INTO addresses(address,label,created_at) VALUES(?,?,?)",
+                          (addr, label, now_iso()))
+                count = c.execute("SELECT COUNT(*) n FROM messages WHERE rcpt_to=?", (addr,)).fetchone()["n"]
+                latest = c.execute("SELECT * FROM messages WHERE rcpt_to=? ORDER BY id DESC LIMIT 1", (addr,)).fetchone()
+            return self.send_json({"ready": True, "user": local, "address": addr,
+                                   "messages": count,
+                                   "latest": row_to_summary(latest) if latest else None,
+                                   "api": {"list": f"/api/messages?user={local}&limit=20",
+                                           "latest": f"/api/latest?user={local}&wait=30"}})
+
+        # ── Alias claim ──
+        if path == "/api/aliases":
+            local = (b.get("local") or "").strip().lower()
+            domain = (b.get("domain") or DOMAIN).strip().lower()
+            kind = (b.get("kind") or ("random" if not local else "custom")).lower()
+            owner = u["username"] if u["role"] != au.ROLE_SUPER else (b.get("owner") or u["username"])
+            with db() as c:
+                if kind == "random":
+                    a = ad.claim_random_alias(c, owner=owner, role=u["role"], domain=domain)
+                else:
+                    a = ad.claim_custom_alias(c, owner=owner, role=u["role"],
+                                              local=local, domain=domain)
+            return self.send_json(a)
+
+        # ── User management ──
+        if path == "/api/users":
+            actor = self.require_role(au.ROLE_SUPER, au.ROLE_ADMIN)
+            if not actor:
+                return
+            target_role = (b.get("role") or au.ROLE_USER).lower()
+            if not au.can_create_role(actor["role"], target_role):
+                raise PermissionError(f"Role '{actor['role']}' tidak boleh buat '{target_role}'")
+            username = (b.get("username") or "").strip().lower()
+            pw = au.gen_password()
+            with db() as c:
+                au.create_user(c, username=username, password=pw, role=target_role,
+                               created_by=actor["username"], must_change=True)
+            return self.send_json({
+                "username": username, "role": target_role,
+                "initial_password": pw,
+                "must_change_password": True,
+                "note": "Password ini hanya muncul sekali. Berikan ke user, dia wajib ganti saat login pertama."
+            })
+
+        m = re.match(r"^/api/users/([\w]+)/(lock|unlock|password)$", path)
+        if m:
+            actor = self.require_role(au.ROLE_SUPER)
+            if not actor:
+                return
+            target = m.group(1).lower()
+            action = m.group(2)
+            reason = (b.get("reason") or "").strip()
+            with db() as c:
+                if action == "lock":
+                    au.set_lock(c, username=target, locked=True,
+                                actor=actor["username"], reason=reason)
+                elif action == "unlock":
+                    au.set_lock(c, username=target, locked=False,
+                                actor=actor["username"], reason=reason or "manual unlock")
+                elif action == "password":
+                    new_pw = au.gen_password()
+                    au.change_password(c, username=target, new_password=new_pw,
+                                       actor=actor["username"], clear_must_change=False)
+                    # set must_change=1 supaya user wajib ganti lagi
+                    c.execute("UPDATE users SET must_change_password=1 WHERE username=?", (target,))
+                    return self.send_json({"username": target, "new_password": new_pw,
+                                           "must_change_password": True})
+            return self.send_json({"username": target, "action": action, "ok": True})
+
+        # ── Domain management (super_admin only) ──
+        if path == "/api/domains":
+            actor = self.require_role(au.ROLE_SUPER)
+            if not actor:
+                return
+            with db() as c:
+                d = ad.add_domain(c, domain=b.get("domain") or "",
+                                  mode=(b.get("mode") or "public").lower(),
+                                  actor=actor["username"],
+                                  owner=(b.get("owner") or "").strip().lower() or None)
+                au.log_action(c, actor["username"], "add_domain",
+                              target=d["domain"], meta={"mode": d["mode"]})
+            return self.send_json(d)
+
+        m = re.match(r"^/api/domains/([\w\.\-]+)$", path)
+        if m:
+            actor = self.require_role(au.ROLE_SUPER)
+            if not actor:
+                return
+            domain = m.group(1).lower()
+            with db() as c:
+                ad.update_domain(
+                    c, domain=domain,
+                    mode=(b.get("mode") or "").lower() or None,
+                    enabled=b.get("enabled"),
+                    owner=(b.get("owner") or "").strip().lower() or None,
+                )
+                au.log_action(c, actor["username"], "update_domain",
+                              target=domain, meta={k: v for k, v in b.items() if k in ("mode", "enabled", "owner")})
+            return self.send_json({"domain": domain, "ok": True})
+
+        # ── Legacy: /api/address (deprecated, redirect to /api/aliases) ──
+        if path == "/api/address":
+            local = (b.get("local") or "").strip().lower()
+            kind = "custom" if local else "random"
+            domain = DOMAIN
+            owner = u["username"] if u["role"] != au.ROLE_SUPER else (b.get("owner") or u["username"])
+            with db() as c:
+                if kind == "random":
+                    a = ad.claim_random_alias(c, owner=owner, role=u["role"], domain=domain)
+                else:
+                    a = ad.claim_custom_alias(c, owner=owner, role=u["role"],
+                                              local=local, domain=domain)
+            return self.send_json({"address": a["alias"], "kind": a["kind"]})
+
+        return self.send_json({"error": "not found"}, 404)
+
     def do_DELETE(self):
         path = urlparse(self.path).path
-        if not self.authed():
+        u = self.current_user()
+        if not u:
             return self.send_json({"error": "unauthorized"}, 401)
+        try:
+            return self._handle_delete(path, u)
+        except PermissionError as e:
+            return self.send_json({"error": str(e) or "forbidden"}, 403)
+        except ValueError as e:
+            return self.send_json({"error": str(e)}, 400)
+        except Exception as e:
+            return self.send_json({"error": str(e)}, 500)
+
+    def _handle_delete(self, path, u):
+        b = self.body() if int(self.headers.get("content-length") or 0) else {}
+        # ── Delete message ──
         m = re.match(r"^/api/messages/(\d+)$", path)
-        if not m:
-            return self.send_json({"error": "not found"}, 404)
-        with db() as c:
-            c.execute("DELETE FROM messages WHERE id=?", (int(m.group(1)),))
-        return self.send_json({"deleted": int(m.group(1))})
+        if m:
+            mid = int(m.group(1))
+            with db() as c:
+                r = c.execute("SELECT rcpt_to FROM messages WHERE id=?", (mid,)).fetchone()
+                if r and u["role"] != au.ROLE_SUPER:
+                    owner = ad.get_alias_owner(c, r["rcpt_to"])
+                    if not owner or owner.lower() != u["username"].lower():
+                        return self.send_json({"error": "forbidden"}, 403)
+                c.execute("DELETE FROM messages WHERE id=?", (mid,))
+            return self.send_json({"deleted": mid})
+
+        # ── Delete user (super only) ──
+        m = re.match(r"^/api/users/([\w]+)$", path)
+        if m:
+            actor = self.require_role(au.ROLE_SUPER)
+            if not actor:
+                return
+            target = m.group(1).lower()
+            reason = (b.get("reason") or "").strip()
+            with db() as c:
+                au.delete_user(c, username=target, actor=actor["username"], reason=reason)
+            return self.send_json({"deleted_user": target})
+
+        # ── Delete alias ──
+        m = re.match(r"^/api/aliases/(.+)$", path)
+        if m:
+            alias = m.group(1).lower()
+            with db() as c:
+                ad.delete_alias(c, alias=alias, requester=u["username"], role=u["role"])
+                au.log_action(c, u["username"], "delete_alias", target=alias)
+            return self.send_json({"deleted_alias": alias})
+
+        # ── Delete domain (super only) ──
+        m = re.match(r"^/api/domains/([\w\.\-]+)$", path)
+        if m:
+            actor = self.require_role(au.ROLE_SUPER)
+            if not actor:
+                return
+            domain = m.group(1).lower()
+            with db() as c:
+                ad.delete_domain(c, domain=domain)
+                au.log_action(c, actor["username"], "delete_domain", target=domain)
+            return self.send_json({"deleted_domain": domain})
+
+        return self.send_json({"error": "not found"}, 404)
+
+
+def cleanup_loop(stop_event):
+    """Background thread: hapus email > EMAIL_RETENTION_HOURS jam, jalan tiap 1 jam."""
+    while not stop_event.is_set():
+        try:
+            with db() as c:
+                n = ad.cleanup_old_messages(c, hours=EMAIL_RETENTION_HOURS)
+                if n:
+                    print(f"[cleanup] removed {n} emails older than {EMAIL_RETENTION_HOURS}h", flush=True)
+                # Bersihkan session expired juga
+                c.execute(
+                    "DELETE FROM user_sessions WHERE expires_at < ?",
+                    (now_iso(),),
+                )
+        except Exception as e:
+            print(f"[cleanup] error: {e}", flush=True)
+        # tidur 1 jam atau sampai stop
+        stop_event.wait(3600)
 
 
 def run_web():
     srv = ThreadingHTTPServer((WEB_HOST, WEB_PORT), Handler)
-    print(f"Dashboard/API: http://{WEB_HOST}:{WEB_PORT}/" + (f"?token={API_TOKEN}" if API_TOKEN else ""), flush=True)
+    print(f"Dashboard/API: http://{WEB_HOST}:{WEB_PORT}/", flush=True)
+    print(f"  super_admin login: {SUPER_ADMIN_USER} / (password from .env or default)", flush=True)
     srv.serve_forever()
 
 
@@ -1252,8 +2017,13 @@ def main():
     init_db()
     smtp = Controller(TempMailSMTP(), hostname=MAIL_HOST, port=SMTP_PORT)
     smtp.start()
-    print(f"SMTP receiver: {MAIL_HOST}:{SMTP_PORT} accepting *@{DOMAIN}", flush=True)
+    print(f"SMTP receiver: {MAIL_HOST}:{SMTP_PORT} accepting *@{DOMAIN} (+ tambahan dari /api/domains)", flush=True)
     stop = threading.Event()
+
+    # Cleanup thread untuk auto-delete email lama
+    cleaner = threading.Thread(target=cleanup_loop, args=(stop,), daemon=True)
+    cleaner.start()
+    print(f"Cleanup thread: messages older than {EMAIL_RETENTION_HOURS}h auto-deleted", flush=True)
 
     def shutdown(signum, frame):
         stop.set()
