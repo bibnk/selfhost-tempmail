@@ -342,7 +342,7 @@ INDEX_HTML = r"""
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TempMail · self-hosted</title>
+<title>TempMail · bibnk</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -943,7 +943,7 @@ a{color:inherit;text-decoration:none}
 <body>
 <div class="app">
   <aside class="side">
-    <div class="logo"><div class="mark">B</div><div class="brand"><h1>TempMail</h1><p>self-hosted</p></div></div>
+    <div class="logo"><div class="mark">B</div><div class="brand"><h1>TempMail</h1><p>bibnk.cloud</p></div></div>
     <nav class="nav">
       <a class="active" href="#inbox" data-page="inbox"><span>📥</span> Inbox</a>
       <a href="#aliases" data-page="aliases"><span>✉️</span> Aliases</a>
@@ -967,7 +967,7 @@ a{color:inherit;text-decoration:none}
       <div class="sideMeta">
         <div><span>SMTP</span><b id="sideSmtp">—</b></div>
         <div><span>MSG</span><b id="sideMsg">—</b></div>
-        <div><span>HOST</span><b id="sideHost">your-domain.com</b></div>
+        <div><span>HOST</span><b id="sideHost">bibnk.cloud</b></div>
       </div>
     </div>
   </aside>
@@ -986,7 +986,7 @@ a{color:inherit;text-decoration:none}
       </div>
       <div class="actions">
         <button class="btn" onclick="refresh()">↻ Refresh</button>
-        <button class="btn primary" onclick="location.hash='inbox'; setTimeout(()=>createAddress(),50)">+ Random</button>
+        <button class="btn primary" onclick="claimAlias('random')">🎲 Random Alias</button>
       </div>
     </section>
 
@@ -1209,8 +1209,81 @@ function onAliasFilterChange(){
 function toast(s){let el=document.createElement('div');el.textContent=s;document.getElementById('toast').appendChild(el);setTimeout(()=>el.remove(),3300)}
 function fmtTime(s){try{return new Date(s).toLocaleString()}catch(e){return s||''}}
 function stripHtml(s){return String(s||'').replace(/<style[^>]*>[\s\S]*?<\/style>/gi,'').replace(/<script[^>]*>[\s\S]*?<\/script>/gi,'').replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/[a-zA-Z0-9_\-,.\s#:>*\[\]="']{2,80}\{[^{}]*\}/g,' ').replace(/@(media|font-face|keyframes|supports|import|charset)[^{]*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/gi,' ').replace(/\s+/g,' ').trim()}
-async function status(){let s=await api('/api/status');domain=s.domain;let di=document.getElementById('domainInline'); if(di) di.textContent='*@'+s.domain;document.getElementById('stDomain').textContent=s.domain;document.getElementById('stMessages').textContent=s.messages;document.getElementById('stSmtp').textContent=s.smtp_port;document.getElementById('stAuth').textContent=s.auth?'ON':'OFF';let sm=document.getElementById('sideSmtp');if(sm)sm.textContent=':'+s.smtp_port;let smg=document.getElementById('sideMsg');if(smg)smg.textContent=s.messages;let sh=document.getElementById('sideHost');if(sh)sh.textContent=s.domain;lastApiText=`TOKEN='${token||'TOKEN'}'\nBASE='${location.origin}'\n\n# ready/open requested user email\ncurl -s "$BASE/api/ready?user=telegram" -H "x-api-token: $TOKEN" | jq\n\n# create random address\ncurl -s -X POST "$BASE/api/address" -H "x-api-token: $TOKEN" -H "content-type: application/json" -d '{}' | jq\n\n# create specific alias\ncurl -s -X POST "$BASE/api/address" -H "x-api-token: $TOKEN" -H "content-type: application/json" -d '{"local":"telegram"}' | jq\n\n# wait latest email for requested user max 30 sec\ncurl -s "$BASE/api/latest?user=telegram&wait=30" -H "x-api-token: $TOKEN" | jq\n\n# list inbox only requested user\ncurl -s "$BASE/api/messages?user=telegram&limit=20" -H "x-api-token: $TOKEN" | jq`;document.getElementById('apihelp').textContent=lastApiText;return s}
-async function createAddress(){let local=document.getElementById('local').value.trim();try{let j=await api('/api/address',{method:'POST',body:JSON.stringify({local})});document.getElementById('result').textContent=JSON.stringify(j,null,2);document.getElementById('local').value=j.address.split('@')[0];toast('Ready: '+j.address);refresh();}catch(e){document.getElementById('result').textContent=e.message;toast('Error: '+e.message)}}
+async function status(){let s=await api('/api/status');domain=s.domain;let di=document.getElementById('domainInline'); if(di) di.textContent='*@'+s.domain;document.getElementById('stDomain').textContent=s.domain;document.getElementById('stMessages').textContent=s.messages;document.getElementById('stSmtp').textContent=s.smtp_port;document.getElementById('stAuth').textContent=s.auth?'ON':'OFF';let sm=document.getElementById('sideSmtp');if(sm)sm.textContent=':'+s.smtp_port;let smg=document.getElementById('sideMsg');if(smg)smg.textContent=s.messages;let sh=document.getElementById('sideHost');if(sh)sh.textContent=s.domain;lastApiText=`# ============================================================
+#  bibnk tempmail — API quick reference
+# ============================================================
+TOKEN='${token||'YOUR_API_TOKEN'}'
+BASE='${location.origin}'
+H="-H \\"x-api-token: $TOKEN\\""
+J="-H \\"content-type: application/json\\""
+
+# ── Auth (cookie session, alternatif x-api-token) ─────────
+# login → set cookie sid
+curl -s -c cookie.txt -X POST "$BASE/api/login" $J \\
+  -d '{"username":"6715","password":"6715"}' | jq
+# whoami
+curl -s -b cookie.txt "$BASE/api/whoami" | jq
+# ganti password (first-login skip current)
+curl -s -b cookie.txt -X POST "$BASE/api/change-password" $J \\
+  -d '{"current":"oldpw","new":"NewPass1!"}' | jq
+# logout
+curl -s -b cookie.txt -X POST "$BASE/api/logout" | jq
+
+# ── Inbox / Messages ──────────────────────────────────────
+# list inbox milik user (super_admin lihat semua)
+curl -s "$BASE/api/messages?limit=80" $H | jq
+# filter by alias / user
+curl -s "$BASE/api/messages?user=otp&limit=20" $H | jq
+# detail message
+curl -s "$BASE/api/messages/123" $H | jq
+# delete message
+curl -s -X DELETE "$BASE/api/messages/123" $H | jq
+# ready/open + wait latest (long-poll s/d 30 dtk)
+curl -s "$BASE/api/ready?user=otp" $H | jq
+curl -s "$BASE/api/latest?user=otp&wait=30" $H | jq
+
+# ── Aliases (claim/rilis) ─────────────────────────────────
+# list alias milik user
+curl -s "$BASE/api/aliases" $H | jq
+# claim random 10-char (unlimited)
+curl -s -X POST "$BASE/api/aliases" $H $J \\
+  -d '{"kind":"random","domain":"${s.domain}"}' | jq
+# claim custom (max 3 per user)
+curl -s -X POST "$BASE/api/aliases" $H $J \\
+  -d '{"kind":"custom","local":"otp","domain":"${s.domain}"}' | jq
+# delete (release) alias — INGAT @ harus encoded jadi %40
+curl -s -X DELETE "$BASE/api/aliases/otp%40${s.domain}" $H | jq
+
+# ── Users (admin & super_admin) ───────────────────────────
+curl -s "$BASE/api/users" $H | jq
+# add user (password default = EJFamily, wajib ganti at first login)
+curl -s -X POST "$BASE/api/users" $H $J \\
+  -d '{"username":"alice","role":"user"}' | jq
+# lock / unlock / delete (audit reason wajib)
+curl -s -X POST "$BASE/api/users/alice/lock"   $H $J -d '{"reason":"abuse"}'   | jq
+curl -s -X POST "$BASE/api/users/alice/unlock" $H $J -d '{"reason":"cleared"}' | jq
+curl -s -X DELETE "$BASE/api/users/alice"      $H $J -d '{"reason":"offboard"}'| jq
+# reset password → kembali ke EJFamily, must_change=1
+curl -s -X POST "$BASE/api/users/alice/password" $H $J -d '{}' | jq
+
+# ── Domains (super_admin only) ────────────────────────────
+curl -s "$BASE/api/domains" $H | jq
+curl -s -X POST "$BASE/api/domains" $H $J \\
+  -d '{"domain":"alt.example","mode":"public"}' | jq
+# toggle / set mode / delete
+curl -s -X POST "$BASE/api/domains/alt.example" $H $J -d '{"enabled":false}' | jq
+curl -s -X POST "$BASE/api/domains/alt.example" $H $J -d '{"mode":"private"}'| jq
+curl -s -X DELETE "$BASE/api/domains/alt.example" $H | jq
+
+# ── Audit log (admin & super_admin) ───────────────────────
+curl -s "$BASE/api/audit?limit=200" $H | jq
+
+# ── SMTP receiver ─────────────────────────────────────────
+# kirim test ke wildcard *@${s.domain}
+swaks --to test@${s.domain} --server $BASE_HOST --port 25 \\
+      --from 'check@you.id' --header 'Subject: hello' --body 'hi'
+`;document.getElementById('apihelp').textContent=lastApiText;return s}
+async function createAddress(){return claimAlias('random');}
 function currentTo(){
   const sel=document.getElementById('aliasFilter');
   if(!sel)return '';
@@ -1856,7 +1929,7 @@ button:active{transform:translateY(0)}
     <div class="mark">B</div>
     <div>
       <h1>TempMail</h1>
-      <p class="sub">self-hosted · access required</p>
+      <p class="sub">bibnk.cloud · access required</p>
     </div>
   </div>
   <form method="POST" action="/login" autocomplete="off">
