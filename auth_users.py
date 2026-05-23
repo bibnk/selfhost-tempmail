@@ -53,6 +53,9 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+DEFAULT_INITIAL_PASSWORD = "EJFamily"
+
+
 def gen_password(length: int = 14) -> str:
     """Auto-generate password yang lulus policy."""
     upper = secrets.choice(string.ascii_uppercase)
@@ -199,7 +202,8 @@ def list_users(conn: sqlite3.Connection) -> list[dict]:
 
 def create_user(conn: sqlite3.Connection, *, username: str, password: str,
                 role: str, created_by: str,
-                must_change: bool = True) -> dict:
+                must_change: bool = True,
+                bypass_policy: bool = False) -> dict:
     username = (username or "").strip().lower()
     if not USERNAME_RE.match(username):
         raise ValueError("Username 3-32 chars, hanya huruf/angka/underscore.")
@@ -207,6 +211,10 @@ def create_user(conn: sqlite3.Connection, *, username: str, password: str,
         raise ValueError(f"Role invalid. Pilih: {', '.join(ROLES)}")
     if get_user(conn, username):
         raise ValueError(f"Username '{username}' sudah dipakai.")
+    if not bypass_policy:
+        ok, msg = password_meets_policy(password)
+        if not ok:
+            raise ValueError(msg)
     h, s = hash_password(password)
     conn.execute(
         "INSERT INTO users(username, password_hash, password_salt, role, "

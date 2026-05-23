@@ -396,15 +396,27 @@ button{cursor:pointer;border:0;background:none}
 a{color:inherit;text-decoration:none}
 
 /* === LAYOUT === */
-.app{position:relative;z-index:1;min-height:100vh;display:grid;grid-template-columns:260px 1fr}
+.app{position:relative;z-index:1;min-height:100vh;display:grid;grid-template-columns:260px 1fr;gap:18px;padding:18px 18px 18px 18px}
 .side{
-  position:sticky;top:0;height:100vh;display:flex;flex-direction:column;
+  position:sticky;top:18px;height:calc(100vh - 36px);display:flex;flex-direction:column;
   padding:22px 18px;
-  border-right:1px solid var(--line);
-  background:linear-gradient(180deg,rgba(5,6,8,.8),rgba(0,0,0,.95));
-  backdrop-filter:blur(20px);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:18px;
+  background:linear-gradient(180deg,rgba(15,18,24,.55),rgba(5,7,11,.75));
+  backdrop-filter:blur(24px) saturate(140%);
+  -webkit-backdrop-filter:blur(24px) saturate(140%);
+  box-shadow:
+    0 24px 60px rgba(0,0,0,.45),
+    inset 0 1px 0 rgba(255,255,255,.05),
+    0 0 0 1px rgba(255,255,255,.02);
+  overflow-y:auto;
 }
-.logo{display:flex;align-items:center;gap:11px;margin-bottom:32px;padding:0 6px}
+.side:before{
+  content:"";position:absolute;inset:0;border-radius:18px;pointer-events:none;
+  background:linear-gradient(180deg,transparent,rgba(124,92,255,.04) 60%,rgba(0,229,255,.05));
+  opacity:.6;
+}
+.logo{display:flex;align-items:center;gap:11px;margin-bottom:24px;padding:0 6px;position:relative;z-index:1}
 .mark{
   width:36px;height:36px;border-radius:10px;
   background:conic-gradient(from 200deg,var(--neon),var(--neon-2),var(--neon-3),var(--neon));
@@ -416,7 +428,9 @@ a{color:inherit;text-decoration:none}
 .brand h1{font-size:15px;font-weight:700;letter-spacing:-.3px}
 .brand p{font-size:11px;color:var(--txt-3);font-family:'JetBrains Mono',monospace;margin-top:1px}
 
-.nav{display:flex;flex-direction:column;gap:3px}
+.nav{display:flex;flex-direction:column;gap:3px;position:relative;z-index:1}
+.navGroup{display:flex;flex-direction:column;gap:3px;margin:8px 0 6px;padding:10px 8px 8px;border:1px solid rgba(255,255,255,.05);border-radius:11px;background:rgba(255,255,255,.018)}
+.navGroupLabel{font-size:9.5px;font-weight:700;color:var(--txt-3);letter-spacing:.18em;padding:0 4px 6px;font-family:'JetBrains Mono',monospace}
 .nav a{
   display:flex;align-items:center;gap:10px;
   padding:10px 12px;border-radius:9px;
@@ -425,24 +439,24 @@ a{color:inherit;text-decoration:none}
   transition:all .15s ease;
   position:relative;
 }
-.nav a:hover{color:var(--txt);background:rgba(255,255,255,.025)}
+.nav a:hover{color:var(--txt);background:rgba(255,255,255,.04);transform:translateX(2px)}
 .nav a.active{
-  background:linear-gradient(135deg,rgba(124,92,255,.12),rgba(0,229,255,.04));
-  border-color:rgba(124,92,255,.25);
+  background:linear-gradient(135deg,rgba(124,92,255,.18),rgba(0,229,255,.06));
+  border-color:rgba(124,92,255,.35);
   color:var(--txt);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 4px 14px rgba(124,92,255,.12);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 4px 18px rgba(124,92,255,.18);
 }
 .nav a.active:before{
-  content:"";position:absolute;left:-19px;top:50%;transform:translateY(-50%);
+  content:"";position:absolute;left:-9px;top:50%;transform:translateY(-50%);
   width:3px;height:18px;border-radius:0 3px 3px 0;
   background:linear-gradient(180deg,var(--neon),var(--neon-2));
   box-shadow:0 0 12px var(--neon);
 }
 .nav a.logout{margin-top:auto;color:#ff8a8a}
-.nav a.logout:hover{background:rgba(255,92,92,.08);border-color:rgba(255,92,92,.2)}
+.nav a.logout:hover{background:rgba(255,92,92,.1);border-color:rgba(255,92,92,.25)}
 .nav-spacer{flex:1}
 
-.sidefoot{padding:14px 6px 0;border-top:1px solid var(--line);margin-top:14px}
+.sidefoot{padding:14px 6px 0;border-top:1px solid var(--line);margin-top:14px;position:relative;z-index:1}
 .statusBar{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:rgba(34,217,149,.06);border:1px solid rgba(34,217,149,.18)}
 .statusDot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 10px var(--ok);animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
@@ -451,6 +465,24 @@ a{color:inherit;text-decoration:none}
 .sideMeta>div{display:flex;justify-content:space-between;padding:6px 10px;border-radius:7px;background:rgba(255,255,255,.018);border:1px solid var(--line)}
 .sideMeta span{color:var(--txt-3);text-transform:uppercase;letter-spacing:.08em;font-size:10px}
 .sideMeta b{color:var(--neon);font-weight:500}
+
+/* === USER BADGE (header right) === */
+.userBadge{display:flex;align-items:center;gap:10px;padding:8px 12px 8px 8px;border-radius:11px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(135deg,rgba(124,92,255,.12),rgba(0,229,255,.04));backdrop-filter:blur(10px);margin-right:8px}
+.ub-avatar{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;background:linear-gradient(135deg,var(--neon-2),var(--neon-3));color:#fff;font-weight:800;font-size:13px;text-transform:uppercase;box-shadow:0 4px 12px rgba(124,92,255,.3)}
+.ub-info{display:flex;flex-direction:column;gap:1px}
+.ub-name{font-size:12.5px;font-weight:600;color:var(--txt);font-family:'JetBrains Mono',monospace}
+.ub-role{font-size:9.5px;color:var(--neon);text-transform:uppercase;letter-spacing:.1em;font-weight:600}
+
+/* === PASSWORD VALIDATOR === */
+.pwRules{list-style:none;padding:10px 0 0;margin:0;display:grid;gap:5px}
+.pwRules li{font-size:12px;padding:6px 10px;border-radius:7px;background:rgba(255,92,92,.06);border:1px solid rgba(255,92,92,.18);color:#ff9a9a;font-family:'JetBrains Mono',monospace;transition:all .15s ease;position:relative;padding-left:28px}
+.pwRules li:before{content:"✗";position:absolute;left:10px;top:50%;transform:translateY(-50%);font-weight:700;color:#ff5c5c}
+.pwRules li.ok{background:rgba(34,217,149,.06);border-color:rgba(34,217,149,.25);color:var(--ok)}
+.pwRules li.ok:before{content:"✓";color:var(--ok)}
+.pwStrength{margin-top:10px;height:8px;border-radius:99px;background:rgba(255,255,255,.05);overflow:hidden;border:1px solid var(--line2);position:relative}
+.pwStrength:before{content:"strength";position:absolute;top:-16px;left:0;font-size:9.5px;color:var(--txt-3);letter-spacing:.1em;text-transform:uppercase;font-family:'JetBrains Mono',monospace}
+.pwStrength .bar{height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,var(--bad),var(--warn),var(--ok));transition:width .25s ease;box-shadow:0 0 8px currentColor}
+.actorTag{display:inline-block;padding:2px 9px;margin-left:6px;border-radius:99px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;letter-spacing:.04em;background:linear-gradient(135deg,var(--neon-2),var(--neon-3));color:#fff;box-shadow:0 2px 8px rgba(124,92,255,.35);text-transform:uppercase}
 
 /* === MAIN === */
 .main{padding:28px 32px 40px;max-width:1400px;width:100%}
@@ -744,9 +776,16 @@ a{color:inherit;text-decoration:none}
     <nav class="nav">
       <a class="active" href="#inbox" data-page="inbox"><span>📥</span> Inbox</a>
       <a href="#aliases" data-page="aliases"><span>✉️</span> Aliases</a>
-      <a href="#users" data-page="users" data-need="admin"><span>👥</span> Users</a>
+
+      <div class="navGroup" data-need="admin">
+        <div class="navGroupLabel">USERS</div>
+        <a href="#users-add" data-page="users-add"><span>➕</span> Add User</a>
+        <a href="#users-manage" data-page="users-manage"><span>🛡️</span> Lock / Delete</a>
+        <a href="#users-log" data-page="users-log"><span>📜</span> User Log</a>
+      </div>
+
       <a href="#domains" data-page="domains" data-need="super"><span>🌐</span> Domains</a>
-      <a href="#audit" data-page="audit" data-need="super"><span>📜</span> Audit Log</a>
+      <a href="#change-pw" data-page="change-pw"><span>🔑</span> Change Password</a>
       <a href="#api" data-page="api"><span>🤖</span> Bot API</a>
       <a href="#status" data-page="status"><span>📊</span> Status</a>
       <div class="nav-spacer"></div>
@@ -766,6 +805,13 @@ a{color:inherit;text-decoration:none}
       <div class="hero">
         <h2 id="pageTitle">Inbox</h2>
         <p id="pageSubtitle">Tangkap email ke <b id="domainInline">*@domain</b>, baca isinya, ambil OTP via API.</p>
+      </div>
+      <div class="userBadge">
+        <div class="ub-avatar" id="ubAvatar">?</div>
+        <div class="ub-info">
+          <div class="ub-name" id="ubName">—</div>
+          <div class="ub-role" id="ubRole">—</div>
+        </div>
       </div>
       <div class="actions">
         <button class="btn" onclick="refresh()">↻ Refresh</button>
@@ -835,7 +881,7 @@ a{color:inherit;text-decoration:none}
       </div>
     </section>
 
-    <section class="layout page" id="users" data-page="users">
+    <section class="layout page" id="users-add" data-page="users-add">
       <div class="card inboxTools">
         <div class="cardHead"><h3>Add User</h3><span class="pill" id="rolePill"><span class="dot"></span> —</span></div>
         <div class="cardBody">
@@ -849,13 +895,46 @@ a{color:inherit;text-decoration:none}
               </select>
               <button class="btn green" onclick="addUser()">+ Add</button>
             </div>
-            <div id="newUserResult" class="result">Password generated otomatis. User wajib ganti saat login pertama.</div>
+            <div id="newUserResult" class="result">Password default: <b style="color:var(--neon)">EJFamily</b>. User wajib ganti saat login pertama.</div>
           </div>
         </div>
       </div>
-      <div class="card" style="grid-column:1/-1">
-        <div class="cardHead"><h3>Users</h3><button class="btn" onclick="loadUsers()">↻</button></div>
-        <div class="cardBody"><div id="userList" class="list"><div class="empty"><div class="emptyIcon">⏳</div><div>Loading...</div></div></div></div>
+    </section>
+
+    <section class="card page" id="users-manage" data-page="users-manage">
+      <div class="cardHead"><h3>Lock / Delete</h3><button class="btn" onclick="loadUsers()">↻</button></div>
+      <div class="cardBody"><div id="userList" class="list"><div class="empty"><div class="emptyIcon">⏳</div><div>Loading...</div></div></div></div>
+    </section>
+
+    <section class="card page" id="users-log" data-page="users-log">
+      <div class="cardHead"><h3>User Log</h3><button class="btn" onclick="loadAudit()">↻</button></div>
+      <div class="cardBody"><div id="auditList" class="list"><div class="empty"><div class="emptyIcon">⏳</div><div>Loading...</div></div></div></div>
+    </section>
+
+    <section class="layout page" id="change-pw" data-page="change-pw">
+      <div class="card inboxTools" style="grid-column:1/-1">
+        <div class="cardHead"><h3>Change Password</h3><span class="pill"><span class="dot"></span> self-service</span></div>
+        <div class="cardBody">
+          <div class="bodyPanel">
+            <label class="formLabel">Current password</label>
+            <div class="inputWrap"><input class="input" id="cpCurrent" type="password" placeholder="••••••••"></div>
+            <label class="formLabel" style="margin-top:12px">New password</label>
+            <div class="inputWrap"><input class="input" id="cpNew" type="password" placeholder="••••••••" oninput="validatePw('cpNew','cpRules','cpStrength')"></div>
+            <ul id="cpRules" class="pwRules">
+              <li data-rule="len">Minimal 8 karakter</li>
+              <li data-rule="upper">1 huruf KAPITAL</li>
+              <li data-rule="digit">1 angka</li>
+              <li data-rule="symbol">1 simbol (!@#$% dll)</li>
+            </ul>
+            <div id="cpStrength" class="pwStrength"><div class="bar"></div></div>
+            <label class="formLabel" style="margin-top:12px">Confirm new password</label>
+            <div class="inputWrap"><input class="input" id="cpConfirm" type="password" placeholder="••••••••"></div>
+            <div style="margin-top:14px;display:flex;gap:8px">
+              <button class="btn green" onclick="submitChangePw()">🔑 Update Password</button>
+            </div>
+            <div id="cpResult" class="result">Password baru harus berbeda dari yang lama dan memenuhi semua syarat.</div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -883,11 +962,6 @@ a{color:inherit;text-decoration:none}
         <div class="cardHead"><h3>Domains</h3><button class="btn" onclick="loadDomains()">↻</button></div>
         <div class="cardBody"><div id="domainList" class="list"><div class="empty"><div class="emptyIcon">⏳</div><div>Loading...</div></div></div></div>
       </div>
-    </section>
-
-    <section class="card page" id="audit" data-page="audit">
-      <div class="cardHead"><h3>Audit Log</h3><button class="btn" onclick="loadAudit()">↻</button></div>
-      <div class="cardBody"><div id="auditList" class="list"><div class="empty"><div class="emptyIcon">⏳</div><div>Loading...</div></div></div></div>
     </section>
 
     <section class="card page" id="api" data-page="api">
@@ -967,6 +1041,10 @@ function applyRoleVisibility(){
   // role pill text
   const rp=document.getElementById('rolePill');
   if(rp)rp.innerHTML='<span class="dot"></span> '+r;
+  // user badge di header
+  const un=document.getElementById('ubName'); if(un) un.textContent=me.username||'?';
+  const ur=document.getElementById('ubRole'); if(ur) ur.textContent=(me.role||'').replace('_',' ');
+  const ua=document.getElementById('ubAvatar'); if(ua) ua.textContent=(me.username||'?')[0]||'?';
   // hide admin option in role select kalau bukan super
   const ru=document.getElementById('newUserRole');
   if(ru){
@@ -1094,26 +1172,82 @@ async function loadAudit(){
     document.getElementById('auditList').innerHTML=(j.audit||[]).map(r=>{
       const meta=Object.keys(r.meta||{}).length?` <span class="htmlTag" style="background:rgba(255,255,255,.04)">${esc(JSON.stringify(r.meta))}</span>`:'';
       const reason=r.reason?`<br>reason: <i>${esc(r.reason)}</i>`:'';
-      return `<article class="msg"><div class="msgTop"><div class="subject"><b>${esc(r.action)}</b> ${esc(r.target||'-')}<span class="htmlTag">${esc(r.actor)}</span></div><div class="time">#${r.id}</div></div><div class="meta">${esc(r.ts)}${meta}${reason}</div></article>`;
+      const actorTag=`<span class="actorTag" title="actor">${esc(r.actor)}</span>`;
+      return `<article class="msg"><div class="msgTop"><div class="subject"><b>${esc(r.action)}</b> → ${esc(r.target||'-')} ${actorTag}</div><div class="time">#${r.id}</div></div><div class="meta">${esc(r.ts)}${meta}${reason}</div></article>`;
     }).join('')||'<div class="empty"><div class="emptyIcon">📜</div><div>No audit entries</div></div>';
   }catch(e){document.getElementById('auditList').innerHTML='<div class="empty bad">'+esc(e.message)+'</div>'}
+}
+
+// === PASSWORD VALIDATOR ===
+function _checkPw(pw){
+  return {
+    len: pw.length>=8,
+    upper: /[A-Z]/.test(pw),
+    digit: /\d/.test(pw),
+    symbol: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pw)
+  };
+}
+function validatePw(inputId, rulesId, strengthId){
+  const pw=document.getElementById(inputId).value;
+  const c=_checkPw(pw);
+  const ul=document.getElementById(rulesId);
+  if(ul){
+    [...ul.children].forEach(li=>{ const k=li.dataset.rule; li.classList.toggle('ok', !!c[k]) });
+  }
+  const score=Object.values(c).filter(Boolean).length;
+  const bar=document.querySelector('#'+strengthId+' .bar');
+  if(bar){
+    bar.style.width=(score*25)+'%';
+    bar.style.background=score<2?'var(--bad)':score<4?'var(--warn)':'var(--ok)';
+  }
+  return Object.values(c).every(Boolean);
+}
+
+async function submitChangePw(){
+  const cur=document.getElementById('cpCurrent').value;
+  const npw=document.getElementById('cpNew').value;
+  const conf=document.getElementById('cpConfirm').value;
+  const div=document.getElementById('cpResult');
+  if(!validatePw('cpNew','cpRules','cpStrength')){
+    div.textContent='Password baru belum memenuhi semua syarat.'; toast('Belum valid'); return;
+  }
+  if(npw!==conf){ div.textContent='Konfirmasi password tidak cocok.'; toast('Tidak cocok'); return; }
+  // first-login flow tidak butuh current pw, tapi self-service butuh
+  const body=me.must_change_password?{new:npw,confirm:conf}:{current:cur,new:npw,confirm:conf};
+  try{
+    const r=await fetch('/change-password',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+    if(r.redirected||r.ok){
+      div.textContent='✓ Password updated. Silakan re-login.';
+      toast('Password berhasil diganti');
+      setTimeout(()=>location.href='/login',1200);
+    }else{
+      const t=await r.text();
+      const m=t.match(/class="err"[^>]*>([^<]+)/);
+      div.textContent=m?m[1]:'Update gagal.'; toast(m?m[1]:'Update gagal');
+    }
+  }catch(e){ div.textContent=e.message; toast('Error: '+e.message) }
 }
 
 const pageMeta={
   inbox:['Inbox','Tangkap email ke <b>*@DOMAIN</b>, baca isinya, ambil OTP via API.'],
   aliases:['Aliases','Claim alias kustom (max 3) atau random unlimited. 1 alias = 1 owner.'],
-  users:['Users','Tambah & kelola user. Admin add user · super_admin add admin & user.'],
+  'users-add':['Add User','Tambah user baru. Password default <b>EJFamily</b>, wajib ganti saat login pertama.'],
+  'users-manage':['Lock / Delete','Kelola user — lock/unlock dengan alasan, hapus akun, reset password.'],
+  'users-log':['User Log','Jejak admin: add/delete/lock/unlock dengan actor di-highlight & timestamp.'],
   domains:['Domains','Tambah domain custom. public = semua bisa pakai · private = owner only.'],
-  audit:['Audit Log','Jejak admin: add/delete/lock/unlock dengan alasan & timestamp.'],
+  'change-pw':['Change Password','Ganti password sendiri. Syarat: 8+ chars, 1 KAPITAL, 1 angka, 1 simbol.'],
   api:['Bot API','Endpoint siap pakai: ready email, list inbox, wait latest OTP.'],
   status:['Status','Realtime SMTP receiver, total messages, retention, dan domain config.']
 };
 function route(){
   let page=(location.hash||'#inbox').replace('#','')||'inbox';
-  if(page==='create') page='inbox'; if(!pageMeta[page]) page='inbox';
+  if(page==='create') page='inbox';
+  if(page==='users') page='users-add'; // backward compat
+  if(page==='audit') page='users-log';
+  if(!pageMeta[page]) page='inbox';
   // Block akses page yang butuh role lebih tinggi
-  if(page==='users'&&!(me.role==='super_admin'||me.role==='admin')) page='inbox';
-  if((page==='domains'||page==='audit')&&me.role!=='super_admin') page='inbox';
+  if(page.startsWith('users-')&&!(me.role==='super_admin'||me.role==='admin')) page='inbox';
+  if(page==='domains'&&me.role!=='super_admin') page='inbox';
   document.querySelectorAll('.page').forEach(el=>el.classList.toggle('active',el.dataset.page===page));
   document.querySelectorAll('.nav a[data-page]').forEach(a=>a.classList.toggle('active',a.dataset.page===page));
   let meta=pageMeta[page];
@@ -1121,9 +1255,16 @@ function route(){
   document.getElementById('pageSubtitle').innerHTML=meta[1].replace('DOMAIN',(domain||'domain'));
   if(page==='inbox') refresh();
   else if(page==='aliases') loadAliases();
-  else if(page==='users') loadUsers();
+  else if(page==='users-add'){/* no fetch needed */}
+  else if(page==='users-manage') loadUsers();
+  else if(page==='users-log') loadAudit();
   else if(page==='domains') loadDomains();
-  else if(page==='audit') loadAudit();
+  else if(page==='change-pw'){
+    // Self-service: butuh current. Force-change: hide current field
+    const showCurrent=!me.must_change_password;
+    document.getElementById('cpCurrent').parentElement.parentElement.style.display=showCurrent?'':'none';
+    document.getElementById('cpResult').textContent=me.must_change_password?'⚠ Wajib ganti password (first login). Tidak perlu masukkan password lama.':'Password baru harus berbeda dari yang lama dan memenuhi semua syarat.';
+  }
   else status().catch(e=>toast(e.message));
 }
 window.addEventListener('hashchange',route);
@@ -1288,43 +1429,46 @@ body{
   background:radial-gradient(1200px 700px at 20% -10%,rgba(124,92,255,.14),transparent 60%),radial-gradient(900px 500px at 100% 110%,rgba(0,229,255,.08),transparent 60%),var(--bg);
   color:var(--text);font-family:'Inter',sans-serif;display:grid;place-items:center;padding:20px;
 }
-.box{width:100%;max-width:440px;padding:36px 32px 32px;background:linear-gradient(180deg,rgba(15,18,24,.85),rgba(8,10,14,.95));border:1px solid var(--line);border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,.6);backdrop-filter:blur(20px)}
-.logo{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+.box{width:100%;max-width:440px;padding:30px 28px 26px;background:linear-gradient(180deg,rgba(15,18,24,.85),rgba(8,10,14,.95));border:1px solid var(--line);border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,.6);backdrop-filter:blur(20px)}
+.logo{display:flex;align-items:center;gap:12px;margin-bottom:18px}
 .mark{width:42px;height:42px;border-radius:11px;background:conic-gradient(from 200deg,var(--neon),var(--neon-2),var(--neon-3),var(--neon));display:grid;place-items:center;color:#000;font-weight:800;box-shadow:0 0 28px rgba(0,229,255,.45)}
 h1{font-size:17px;font-weight:700}
 .sub{margin-top:2px;font-size:12px;color:var(--muted);font-family:'JetBrains Mono',monospace}
-.notice{margin-top:18px;padding:11px 14px;background:rgba(255,180,84,.08);border:1px solid rgba(255,180,84,.25);border-radius:9px;color:var(--warn);font-size:12.5px;line-height:1.5}
+.notice{margin-top:14px;padding:11px 14px;background:rgba(255,180,84,.08);border:1px solid rgba(255,180,84,.25);border-radius:9px;color:var(--warn);font-size:12.5px;line-height:1.5}
 .notice b{color:#ffd28c}
-form{margin-top:18px;display:grid;gap:12px}
+form{margin-top:14px;display:grid;gap:10px}
 label{font-size:11px;font-weight:600;color:var(--sub);text-transform:uppercase;letter-spacing:.1em}
-.inputWrap{margin-top:6px;border:1px solid var(--line2);background:#000;border-radius:10px;overflow:hidden;transition:all .15s ease}
+.inputWrap{margin-top:5px;border:1px solid var(--line2);background:#000;border-radius:10px;overflow:hidden;transition:all .15s ease}
 .inputWrap:focus-within{border-color:var(--neon);box-shadow:0 0 0 3px rgba(0,229,255,.12)}
-input{width:100%;border:0;background:transparent;padding:13px 14px;color:#fff;font-family:'JetBrains Mono',monospace;font-size:14px;outline:0}
-button{cursor:pointer;border:0;background:linear-gradient(135deg,var(--neon-2),#5a3eff);color:#fff;padding:14px 20px;border-radius:10px;font-weight:700;font-size:13px;letter-spacing:.5px;text-transform:uppercase;box-shadow:0 8px 24px rgba(124,92,255,.35)}
+input{width:100%;border:0;background:transparent;padding:12px 14px;color:#fff;font-family:'JetBrains Mono',monospace;font-size:14px;outline:0}
+button{cursor:pointer;border:0;background:linear-gradient(135deg,var(--neon-2),#5a3eff);color:#fff;padding:13px 20px;border-radius:10px;font-weight:700;font-size:13px;letter-spacing:.5px;text-transform:uppercase;box-shadow:0 8px 24px rgba(124,92,255,.35);margin-top:6px}
 button:hover{transform:translateY(-1px)}
 .err{margin-top:4px;padding:11px 14px;background:rgba(255,92,92,.08);border:1px solid rgba(255,92,92,.25);border-radius:9px;color:var(--bad);font-size:12.5px;text-align:center}
-.policy{margin-top:6px;font-size:11.5px;color:var(--muted);line-height:1.6;font-family:'JetBrains Mono',monospace}
-.policy li{margin-left:14px}
+
+.pwRules{list-style:none;padding:8px 0 0;margin:0;display:grid;gap:4px}
+.pwRules li{font-size:11.5px;padding:6px 10px;border-radius:7px;background:rgba(255,92,92,.06);border:1px solid rgba(255,92,92,.18);color:#ff9a9a;font-family:'JetBrains Mono',monospace;transition:all .15s ease;position:relative;padding-left:28px}
+.pwRules li:before{content:"✗";position:absolute;left:10px;top:50%;transform:translateY(-50%);font-weight:700;color:#ff5c5c}
+.pwRules li.ok{background:rgba(34,217,149,.06);border-color:rgba(34,217,149,.25);color:var(--ok)}
+.pwRules li.ok:before{content:"✓";color:var(--ok)}
+.pwStrength{margin-top:8px;height:5px;border-radius:99px;background:rgba(255,255,255,.05);overflow:hidden;border:1px solid var(--line)}
+.pwStrength .bar{height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,var(--bad),var(--warn),var(--ok));transition:width .25s ease}
 </style>
 </head>
 <body>
 <div class="box">
   <div class="logo"><div class="mark">B</div><div><h1>Set new password</h1><p class="sub">first login · required</p></div></div>
-  <div class="notice">⚠ <b>Mandatory.</b> Password sementara harus diganti sebelum lanjut ke dashboard.</div>
-  <form method="POST" action="/change-password" autocomplete="off">
-    <div>
-      <label for="current">Current password</label>
-      <div class="inputWrap"><input id="current" name="current" type="password" autocomplete="current-password" required></div>
-    </div>
+  <div class="notice">⚠ <b>Mandatory.</b> Password default <b>EJFamily</b> harus diganti sebelum lanjut. Tidak perlu masukkan password lama.</div>
+  <form method="POST" action="/change-password" autocomplete="off" id="cpForm">
     <div>
       <label for="new">New password</label>
-      <div class="inputWrap"><input id="new" name="new" type="password" autocomplete="new-password" required></div>
-      <ul class="policy">
-        <li>min 8 chars</li>
-        <li>≥1 huruf KAPITAL</li>
-        <li>≥1 angka</li>
-        <li>≥1 simbol (!@#$ dll)</li>
+      <div class="inputWrap"><input id="new" name="new" type="password" autocomplete="new-password" required oninput="checkPw()"></div>
+      <ul class="pwRules" id="rules">
+        <li data-rule="len">Minimal 8 karakter</li>
+        <li data-rule="upper">1 huruf KAPITAL</li>
+        <li data-rule="digit">1 angka</li>
+        <li data-rule="symbol">1 simbol (!@#$% dll)</li>
       </ul>
+      <div class="pwStrength" id="strength"><div class="bar"></div></div>
     </div>
     <div>
       <label for="confirm">Confirm new password</label>
@@ -1334,6 +1478,24 @@ button:hover{transform:translateY(-1px)}
     __ERROR__
   </form>
 </div>
+<script>
+function checkPw(){
+  const pw=document.getElementById('new').value;
+  const c={
+    len: pw.length>=8,
+    upper: /[A-Z]/.test(pw),
+    digit: /\\d/.test(pw),
+    symbol: /[!@#$%^&*()_+\\-=\\[\\]{};':"\\\\|,.<>\\/?]/.test(pw)
+  };
+  const ul=document.getElementById('rules');
+  [...ul.children].forEach(li=>{ const k=li.dataset.rule; li.classList.toggle('ok', !!c[k]) });
+  const score=Object.values(c).filter(Boolean).length;
+  const bar=document.querySelector('#strength .bar');
+  bar.style.width=(score*25)+'%';
+  bar.style.background=score<2?'var(--bad)':score<4?'var(--warn)':'var(--ok)';
+}
+document.getElementById('new').focus();
+</script>
 </body>
 </html>
 """
@@ -1771,8 +1933,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_change_pw_html(error="Konfirmasi password tidak cocok.")
             with db() as c:
                 user_row = au.get_user(c, u["username"])
-                if not user_row or not au.verify_password(cur_pw, user_row["password_hash"], user_row["password_salt"]):
-                    return self.send_change_pw_html(error="Password lama salah.")
+                if not user_row:
+                    return self.send_change_pw_html(error="User tidak ditemukan.")
+                # First-login flow (must_change_password=1) → skip current password check
+                # Self-service flow → wajib verify current password
+                first_login = bool(user_row.get("must_change_password"))
+                if not first_login:
+                    if not au.verify_password(cur_pw, user_row["password_hash"], user_row["password_salt"]):
+                        return self.send_change_pw_html(error="Password lama salah.")
                 ok, msg = au.password_meets_policy(new_pw)
                 if not ok:
                     return self.send_change_pw_html(error=msg)
@@ -1839,15 +2007,18 @@ class Handler(BaseHTTPRequestHandler):
             if not au.can_create_role(actor["role"], target_role):
                 raise PermissionError(f"Role '{actor['role']}' tidak boleh buat '{target_role}'")
             username = (b.get("username") or "").strip().lower()
-            pw = au.gen_password()
+            # Default initial password = EJFamily. Bypass policy karena user
+            # WAJIB ganti saat first login (yang baru harus comply policy).
+            pw = au.DEFAULT_INITIAL_PASSWORD
             with db() as c:
                 au.create_user(c, username=username, password=pw, role=target_role,
-                               created_by=actor["username"], must_change=True)
+                               created_by=actor["username"], must_change=True,
+                               bypass_policy=True)
             return self.send_json({
                 "username": username, "role": target_role,
                 "initial_password": pw,
                 "must_change_password": True,
-                "note": "Password ini hanya muncul sekali. Berikan ke user, dia wajib ganti saat login pertama."
+                "note": f"Password default: {pw}. User wajib ganti saat login pertama."
             })
 
         m = re.match(r"^/api/users/([\w]+)/(lock|unlock|password)$", path)
@@ -1866,11 +2037,17 @@ class Handler(BaseHTTPRequestHandler):
                     au.set_lock(c, username=target, locked=False,
                                 actor=actor["username"], reason=reason or "manual unlock")
                 elif action == "password":
-                    new_pw = au.gen_password()
-                    au.change_password(c, username=target, new_password=new_pw,
-                                       actor=actor["username"], clear_must_change=False)
-                    # set must_change=1 supaya user wajib ganti lagi
-                    c.execute("UPDATE users SET must_change_password=1 WHERE username=?", (target,))
+                    new_pw = au.DEFAULT_INITIAL_PASSWORD
+                    # bypass policy lewat raw update — initial password EJFamily
+                    # tidak lulus policy tapi user wajib ganti saat next login
+                    h, s = au.hash_password(new_pw)
+                    c.execute(
+                        "UPDATE users SET password_hash=?, password_salt=?, "
+                        "must_change_password=1 WHERE username=?",
+                        (h, s, target),
+                    )
+                    c.execute("DELETE FROM user_sessions WHERE username=?", (target,))
+                    au.log_action(c, actor["username"], "reset_password", target=target)
                     return self.send_json({"username": target, "new_password": new_pw,
                                            "must_change_password": True})
             return self.send_json({"username": target, "action": action, "ok": True})
