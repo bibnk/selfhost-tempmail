@@ -1,6 +1,6 @@
-# Self-hosted TempMail
+# Veil — Disposable Email
 
-Self-hosted disposable / temporary email server with SMTP receiver + web dashboard + bot API. Multi-user, multi-domain, role-based.
+Self-hosted disposable / temporary email server with SMTP receiver, web dashboard, and bot API. Multi-user, multi-domain, role-based, DNS verification.
 
 ## Features
 
@@ -8,6 +8,7 @@ Self-hosted disposable / temporary email server with SMTP receiver + web dashboa
 - **SMTP receiver** on port 25 via `aiosmtpd`. Catches `*@your-domain` wildcard.
 - **Multi-domain** — add domains at runtime via dashboard (super_admin).
 - **Domain modes** — `public` (any user can claim aliases) or `private` (owner only).
+- **DNS verification** — dashboard checks MX/A records with plain-language fix steps.
 - **Auto-cleanup** — emails older than 48 hours auto-deleted (configurable).
 
 ### Auth & roles
@@ -16,6 +17,7 @@ Self-hosted disposable / temporary email server with SMTP receiver + web dashboa
   - `admin` — adds users only.
   - `user` — claims own aliases, reads own inbox.
 - **Username + password login** — PBKDF2 (200k iters, sha256) + per-user salt.
+- **Per-user API tokens** — auto-generated on account creation, usable from bot scripts.
 - **Password policy** — min 8 chars, ≥1 uppercase, ≥1 digit, ≥1 symbol.
 - **First-login enforcement** — auto-generated initial password, user must change before accessing dashboard.
 - **Single-device session** — new login auto-kicks the old session.
@@ -32,14 +34,15 @@ Self-hosted disposable / temporary email server with SMTP receiver + web dashboa
 - Super_admin can view via `/api/audit` or dashboard.
 
 ### Bot API
-- Master API token (super_admin level) for scripts/bots.
-- Endpoints: `/api/ready`, `/api/messages`, `/api/latest`, `/api/messages/{id}`.
+- Master API token (super_admin level) + per-user API tokens for scripts/bots.
+- Endpoints: `/api/whoami`, `/api/status`, `/api/ready`, `/api/messages`, `/api/latest`, `/api/messages/{id}`.
 - `/api/latest?wait=30` — long-poll for OTP automation.
 
 ### Dashboard UI
-- Black-dope theme — dark, neon cyan/violet accents, JetBrains Mono.
-- Pages: Inbox, Aliases, Users (admin+), Domains (super), Audit Log (super), Bot API, Status.
+- Clean SaaS dark theme — indigo/gray palette, glassmorphism modals.
+- Pages: Inbox, Aliases, Users (admin+), Domains (super), Audit Log (super), Bot API (per-user tokens), Status.
 - HTML email rendered in sandboxed iframe with `<base target="_blank">`.
+- PWA-ready — installable on mobile (Android TWA).
 
 ## Quick install (1-shot)
 
@@ -76,6 +79,8 @@ TXT    _dmarc                  → "v=DMARC1; p=none; rua=mailto:postmaster@your
 
 If using Cloudflare: **disable proxy** (gray cloud) for `mail` subdomain — Cloudflare doesn't proxy SMTP. Also disable Cloudflare Email Routing or it'll hijack your MX.
 
+> 💡 Use the dashboard's **Status** page to verify your DNS setup — it runs MX/A lookups and shows plain-language fix steps.
+
 ## Bot API examples
 
 ```bash
@@ -95,7 +100,7 @@ curl "$BASE/api/messages?user=hello&limit=20" -H "x-api-token: $TOKEN"
 
 ## Schema
 
-- `users` — accounts + role + lock state
+- `users` — accounts + role + lock state + per-user api_token
 - `user_sessions` — single-device sessions
 - `login_fails` — per-username brute-force counter
 - `audit_log` — admin action history
