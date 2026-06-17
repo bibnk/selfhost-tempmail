@@ -56,7 +56,7 @@ MAX_MESSAGE_BYTES = int(os.getenv("MAX_MESSAGE_BYTES", "10485760"))
 
 # Bootstrap super_admin awal — username + password.
 SUPER_ADMIN_USER = os.getenv("SUPER_ADMIN_USER", "admin").strip().lower()
-SUPER_ADMIN_PASS = os.getenv("SUPER_ADMIN_PASS", "6715")
+SUPER_ADMIN_PASS = os.getenv("SUPER_ADMIN_PASS", "admin")
 EMAIL_RETENTION_HOURS = int(os.getenv("EMAIL_RETENTION_HOURS", "48"))
 SERVER_IP = os.getenv("SERVER_IP", "")
 
