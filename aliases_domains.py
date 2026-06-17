@@ -220,9 +220,20 @@ def _insert_alias(conn: sqlite3.Connection, *, owner: str, local: str, domain: s
         "VALUES(?,?,?,?,?,?)",
         (full, local, domain, owner.lower(), kind, now_iso()),
     )
+    # hitung custom alias count
+    custom_count = conn.execute(
+        "SELECT COUNT(*) n FROM aliases WHERE owner=? AND kind='custom'",
+        (owner.lower(),),
+    ).fetchone()["n"]
+    total_count = conn.execute(
+        "SELECT COUNT(*) n FROM aliases WHERE owner=?",
+        (owner.lower(),),
+    ).fetchone()["n"]
     return {
         "alias": full, "local": local, "domain": domain,
         "owner": owner.lower(), "kind": kind, "created_at": now_iso(),
+        "custom_used": custom_count, "custom_limit": CUSTOM_ALIAS_LIMIT,
+        "total_aliases": total_count,
     }
 
 

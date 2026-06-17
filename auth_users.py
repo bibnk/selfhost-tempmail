@@ -53,7 +53,7 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-DEFAULT_INITIAL_PASSWORD = "EJFamily"
+DEFAULT_INITIAL_PASSWORD = "Babanuki775."
 
 
 def gen_password(length: int = 14) -> str:
@@ -113,7 +113,8 @@ def init_schema(conn: sqlite3.Connection) -> None:
           lock_reason TEXT,
           created_by TEXT,
           created_at TEXT NOT NULL,
-          last_login_at TEXT
+          last_login_at TEXT,
+          api_token TEXT
         );
         CREATE TABLE IF NOT EXISTS user_sessions (
           username TEXT PRIMARY KEY,
@@ -157,7 +158,8 @@ def log_action(conn: sqlite3.Connection, actor: str, action: str,
 
 
 def list_audit(conn: sqlite3.Connection, limit: int = 200,
-               action: Optional[str] = None, target: Optional[str] = None) -> list[dict]:
+               action: Optional[str] = None, target: Optional[str] = None,
+               user: Optional[str] = None) -> list[dict]:
     q = "SELECT * FROM audit_log WHERE 1=1"
     params: list = []
     if action:
@@ -166,6 +168,13 @@ def list_audit(conn: sqlite3.Connection, limit: int = 200,
     if target:
         q += " AND target=?"
         params.append(target)
+    if user:
+        # "search by user": match semua aktivitas yang melibatkan user ini
+        # (substring, case-insensitive) baik sebagai pelaku (actor) maupun target
+        like = f"%{user}%"
+        q += " AND (actor LIKE ? OR target LIKE ?)"
+        params.append(like)
+        params.append(like)
     q += " ORDER BY id DESC LIMIT ?"
     params.append(min(int(limit), 1000))
     rows = conn.execute(q, params).fetchall()
@@ -216,11 +225,12 @@ def create_user(conn: sqlite3.Connection, *, username: str, password: str,
         if not ok:
             raise ValueError(msg)
     h, s = hash_password(password)
+    api_token = secrets.token_hex(32)
     conn.execute(
         "INSERT INTO users(username, password_hash, password_salt, role, "
-        "must_change_password, locked, created_by, created_at) "
-        "VALUES(?,?,?,?,?,0,?,?)",
-        (username, h, s, role, 1 if must_change else 0, created_by, now_iso()),
+        "must_change_password, locked, created_by, created_at, api_token) "
+        "VALUES(?,?,?,?,?,0,?,?,?)",
+        (username, h, s, role, 1 if must_change else 0, created_by, now_iso(), api_token),
     )
     log_action(conn, created_by, "create_user", target=username,
                meta={"role": role, "must_change": must_change})
