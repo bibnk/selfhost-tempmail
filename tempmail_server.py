@@ -1417,7 +1417,7 @@ a{color:inherit;text-decoration:none}
           <div class="apiBody">
             <pre class="apiCode">curl $H "$BASE/api/whoami" | jq</pre>
             <button class="btnCopy" onclick="copyBlock(this)">⎘</button>
-            <div class="apiResp">// { "username": "6715", "role": "super_admin", "api_token": "..." }</div>
+            <div class="apiResp">// { "username": "admin", "role": "super_admin", "api_token": "..." }</div>
           </div>
         </div>
         <!-- STATUS -->
